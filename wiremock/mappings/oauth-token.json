@@ -1,0 +1,28 @@
+{
+  "name": "CF UAA — POST /oauth/token (password grant, strict)",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/oauth/token",
+    "bodyPatterns": [
+      { "contains": "grant_type=password" },
+      { "contains": "username=admin" },
+      { "contains": "password=admin" },
+      { "contains": "client_id=cf" },
+      { "contains": "client_secret=" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json;charset=UTF-8"
+    },
+    "jsonBody": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IndpcmVtb2NrLWtleSJ9.eyJzdWIiOiJhZG1pbiIsInVzZXJfbmFtZSI6ImFkbWluIiwic2NvcGUiOlsib3BlbmlkIiwiY2xvdWRfY29udHJvbGxlci5yZWFkIiwiY2xvdWRfY29udHJvbGxlci53cml0ZSJdLCJleHAiOjk5OTk5OTk5OTksImlhdCI6MTcwMDAwMDAwMCwiY2xpZW50X2lkIjoiY2YifQ.wiremock-fake-signature",
+      "token_type": "bearer",
+      "expires_in": 599,
+      "scope": "openid cloud_controller.read cloud_controller.write",
+      "jti": "wiremock-stub-jti-00000001"
+    }
+  }
+}

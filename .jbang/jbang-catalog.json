@@ -1,0 +1,10 @@
+{
+    "aliases": {
+        "cf-explorer": {
+            "script-ref": "../CfExplorer.java"
+        },
+        "mock-server": {
+            "script-ref": "../wiremock/MockServer.java"
+        }
+    }
+}

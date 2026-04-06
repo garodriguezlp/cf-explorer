@@ -1,0 +1,12 @@
+{
+  "name": "CF Web — GET /organizations/{orgGuid}/spaces/{spaceGuid}/applications/{appGuid}",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/organizations/[^/]+/spaces/[^/]+/applications/[^/]+"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "text/html" },
+    "body": "<!DOCTYPE html><html><head><title>CF Apps Manager</title></head><body><h1>CF Apps Manager (WireMock stub)</h1></body></html>"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "CF API v3 — GET /v3/apps/*/environment_variables (wildcard)",
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPattern": "/v3/apps/.*/environment_variables",
+    "headers": {
+      "Authorization": { "matches": "Bearer .+" }
+    }
+  },
+  "response": {
+    "fixedDelayMilliseconds": 2000,
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "var": {
+        "APP_ENV": "development",
+        "APP_TITLE": "My Cool App (dev)",
+        "DATABASE_URL": "postgres://db.internal:5432/myapp",
+        "GREETING": "it's alive!",
+        "HOME_DIR": "$HOME/apps/myapp",
+        "LOG_LEVEL": "INFO",
+        "QUOTED_VALUE": "\"already quoted value\"",
+        "REDIS_URL": "redis://cache.internal:6379",
+        "SECRET_KEY": "wiremock-fake-secret",
+        "SPRING_APPLICATION_JSON": "{\\\"spring.datasource.url\\\":\\\"jdbc:postgresql://host/db\\\",\\\"spring.datasource.password\\\":\\\"s3cr3t\\\",\\\"spring.redis.host\\\":\\\"cache.internal\\\"}",
+        "TRUSTSTORE": "MIIBpDCCAQ2gAwIBAgIJAMvkKTIwireMock=="
+      }
+    }
+  }
+}
