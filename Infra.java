@@ -11,6 +11,8 @@ import feign.RequestLine;
 import feign.form.FormEncoder;
 import feign.jackson.JacksonDecoder;
 import feign.jackson.JacksonEncoder;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -392,8 +394,8 @@ final class ClipboardWriter {
 
   static boolean copy(String text) {
     try {
-      var selection = new java.awt.datatransfer.StringSelection(text);
-      java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+      var selection = new StringSelection(text);
+      Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
       return true;
     } catch (Exception e) {
       return false;
