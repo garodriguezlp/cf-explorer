@@ -378,6 +378,29 @@ final class Jackson {
   }
 }
 
+/**
+ * Copies text to the system clipboard.
+ *
+ * <p>Fails silently — if the clipboard is unavailable (e.g. headless environments) the method
+ * returns {@code false} without throwing.
+ */
+final class ClipboardWriter {
+
+  private ClipboardWriter() {
+    throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+  }
+
+  static boolean copy(String text) {
+    try {
+      var selection = new java.awt.datatransfer.StringSelection(text);
+      java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+}
+
 /** Opens a URL in the operating-system default browser. */
 final class BrowserLauncher {
 

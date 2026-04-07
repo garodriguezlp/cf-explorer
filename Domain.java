@@ -38,14 +38,16 @@ record KeystoreEntry(String alias, String subjectDN, String issuer, String notBe
  * {@code null} the cert entries are valid; when non-null the file was saved but the JKS could not
  * be parsed and {@link #entries()} will be empty.
  */
-record KeystoreInspectResult(Path jksPath, List<KeystoreEntry> entries, String inspectionError) {
+record KeystoreInspectResult(
+    Path jksPath, List<KeystoreEntry> entries, String inspectionError, boolean clipboardCopied) {
 
-  static KeystoreInspectResult success(Path jksPath, List<KeystoreEntry> entries) {
-    return new KeystoreInspectResult(jksPath, entries, null);
+  static KeystoreInspectResult success(
+      Path jksPath, List<KeystoreEntry> entries, boolean clipboardCopied) {
+    return new KeystoreInspectResult(jksPath, entries, null, clipboardCopied);
   }
 
-  static KeystoreInspectResult partial(Path jksPath, String error) {
-    return new KeystoreInspectResult(jksPath, List.of(), error);
+  static KeystoreInspectResult partial(Path jksPath, String error, boolean clipboardCopied) {
+    return new KeystoreInspectResult(jksPath, List.of(), error, clipboardCopied);
   }
 
   boolean inspected() {
