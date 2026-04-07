@@ -20,18 +20,16 @@ It lets users navigate orgs, spaces, and apps in a TUI, export app environment v
 - **Keystore inspection** (`Ctrl+K`) — decodes a base64-encoded JKS from an app's env var, saves it locally, and displays certificate details (alias, subject DN, issuer, expiry color-coded by freshness).
 - **Browser launch** (`Ctrl+O`) — opens the selected app in Apps Manager.
 
-### Source layout (JBang constraint: one class/layer per file)
+### Source layout (JBang multi-class files, 4-file MVC structure)
 
-| File | Responsibility |
-|---|---|
-| `CfExplorer.java` | Entry point, CLI wiring, config assembly |
-| `Domain.java` | Pure domain types — no I/O, no framework dependencies |
-| `Model.java` | UI state, mutated only on the render thread |
-| `View.java` | Pure render function over `Model` state |
-| `Controller.java` | Coordinates use-cases and dispatches UI state updates |
-| `UseCases.java` | Application logic — orchestrates domain and infra |
-| `Infra.java` | HTTP clients, file I/O, caching, external integrations |
-| `KeyHandler.java` | Keyboard input routing and key-binding logic |
+| File | Layer | Contents |
+|---|---|---|
+| `CfExplorer.java` | **Entry point** | JBang headers (`//DEPS`, `//SOURCES`), `main()`, CLI wiring, config assembly |
+| `Model.java` | **Model** | Domain records (`App`, `KeystoreEntry`, `KeystoreInspectResult`), domain logic (`CatalogJoiner`, `TokenFilter`), and all UI state (`AppState` and its variants) |
+| `View.java` | **View** | Pure render function (`View` class with per-screen components), key input routing (`KeyHandler`, `BrowsingHandlers`, `ExportResultHandlers`) |
+| `Controller.java` | **Controller** | State coordinator (`Controller`), use-case factory (`UseCases`) and individual use cases, all infrastructure adapters (HTTP clients, file I/O, caching) |
+
+Each file is ordered top-down: high-level concepts first, implementation details last. Section dividers (`// --- Domain Records ---`, `// --- Use Cases ---`, etc.) mark logical groups within each file.
 
 ### How to run locally
 
@@ -61,10 +59,10 @@ The stubs in `wiremock/mappings/` cover OAuth, orgs, spaces, apps, and env vars.
 
 ## Architecture and layering
 
-- `Domain` is pure — no I/O, no framework dependencies.
-- `Infra` owns all HTTP calls and file I/O; those concerns should not leak into use-case or domain logic.
+- `Model.java` owns all domain types and UI state — no I/O, no framework dependencies in the domain records or logic.
+- `Controller.java` owns all HTTP calls and file I/O via the infrastructure classes; those concerns should not leak into use-case or domain logic.
 - All UI state mutations go through the render thread via `UiDispatcher` / `runner().runOnRenderThread()`.
-- `View` is a pure render function over `Model` state. Display-formatting logic (truncation, column layout) belongs in `View`, not `Model`.
+- `View.java` is a pure render function over `Model` state. Display-formatting logic (truncation, column layout) belongs in `View`, not `Model`.
 - `FeignCfPlatformGateway` is constructed once in `UseCases` and shared via injection — don't construct it separately in individual use-case classes.
 - Prefer composition over inheritance.
 

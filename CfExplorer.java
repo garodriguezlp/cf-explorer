@@ -13,13 +13,9 @@
 //DEPS io.github.openfeign:feign-jackson:13.11
 //DEPS tools.jackson.core:jackson-databind:3.1.1
 
-//SOURCES Domain.java
 //SOURCES Model.java
 //SOURCES View.java
-//SOURCES Infra.java
-//SOURCES UseCases.java
 //SOURCES Controller.java
-//SOURCES KeyHandler.java
 
 package cf.explorer;
 
@@ -95,15 +91,13 @@ public class CfExplorer implements Callable<Integer> {
 
   @Option(
       names = "--keystore-var",
-      description =
-          "Name of the CF env var that holds the base64-encoded JKS keystore.",
+      description = "Name of the CF env var that holds the base64-encoded JKS keystore.",
       defaultValue = "${KEYSTORE_VAR:-KEYSTORE}")
   private String keystoreVar;
 
   @Option(
       names = "--keystore-password-var",
-      description =
-          "Name of the CF env var that holds the base64-encoded keystore password.",
+      description = "Name of the CF env var that holds the base64-encoded keystore password.",
       defaultValue = "${KEYSTORE_PASSWORD_VAR:-KEYSTORE_PASSWORD}")
   private String keystorePasswordVar;
 
@@ -160,13 +154,10 @@ public class CfExplorer implements Callable<Integer> {
 
   private Path profileDir() {
     var home = System.getProperty("user.home", ".");
-    return env != null
-        ? Path.of(home, ".cf-explorer", env)
-        : Path.of(home, ".cf-explorer");
+    return env != null ? Path.of(home, ".cf-explorer", env) : Path.of(home, ".cf-explorer");
   }
 
-  private static String resolve(
-      String cliVal, String baseVar, String envSuffix, String fallback) {
+  private static String resolve(String cliVal, String baseVar, String envSuffix, String fallback) {
     if (cliVal != null && !cliVal.isBlank()) return cliVal;
     if (!envSuffix.isEmpty()) {
       var profileVal = System.getenv(baseVar + envSuffix);
