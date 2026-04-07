@@ -393,7 +393,8 @@ final class View {
 
   static final class KeystoreDone {
 
-    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DATE_FMT =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     static Element render(AppState.KeystoreDone s, KeyHandler keyHandler) {
       return dock()
@@ -422,7 +423,10 @@ final class View {
                 text("Could not inspect keystore: ").dim(),
                 text(s.result().inspectionError()).yellow()));
         items.add(text(""));
-        items.add(text("  The file was saved but could not be inspected (wrong password or corrupted JKS).").dim());
+        items.add(
+            text("  The file was saved but could not be inspected (wrong password or corrupted"
+                    + " JKS).")
+                .dim());
         items.add(text(""));
         return panel(column(items.toArray(new Element[0])))
             .rounded()
@@ -436,11 +440,12 @@ final class View {
       var today = LocalDate.now();
       for (var entry : s.result().entries()) {
         var expiry = LocalDateTime.parse(entry.notAfter(), DATE_FMT).toLocalDate();
-        var expiryText = !expiry.isAfter(today)
-            ? text(entry.notAfter()).red().bold()
-            : expiry.minusDays(30).isBefore(today)
-                ? text(entry.notAfter()).yellow().bold()
-                : text(entry.notAfter()).green().bold();
+        var expiryText =
+            !expiry.isAfter(today)
+                ? text(entry.notAfter()).red().bold()
+                : expiry.minusDays(30).isBefore(today)
+                    ? text(entry.notAfter()).yellow().bold()
+                    : text(entry.notAfter()).green().bold();
         items.add(row(text("  Alias:       ").dim(), text(entry.alias()).cyan().bold()));
         items.add(row(text("    Subject:     ").dim(), text(entry.subjectDN())));
         items.add(row(text("    Issuer:      ").dim(), text(entry.issuer()).dim()));
@@ -600,8 +605,7 @@ final class KeyHandler {
     var state = controller.state();
     if (state instanceof AppState.CatalogLoading
         || state instanceof AppState.EnvExporting
-        || state instanceof AppState.KeystoreExporting)
-      return EventResult.HANDLED;
+        || state instanceof AppState.KeystoreExporting) return EventResult.HANDLED;
     if (state instanceof AppState.Browsing) return dispatch(event, browsingHandler);
     if (state instanceof AppState.ExportDone || state instanceof AppState.ExportFailed)
       return dispatch(event, exportResultHandler);

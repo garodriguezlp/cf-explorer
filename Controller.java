@@ -163,9 +163,12 @@ final class Controller {
 
   private void onExportDone(EnvWriteResult result) {
     if (state instanceof AppState.EnvExporting e)
-      state = e.toDone(
-          result.path().toString(), result.excludedKeys(), result.postProcessedKeys(),
-          result.clipboardCopied());
+      state =
+          e.toDone(
+              result.path().toString(),
+              result.excludedKeys(),
+              result.postProcessedKeys(),
+              result.clipboardCopied());
   }
 
   private void onExportFailed(Throwable ex) {
@@ -239,7 +242,8 @@ final class UseCases {
         new FeignCfPlatformGateway(
             config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
     this.loadCatalog = new LoadCatalogUseCase(config);
-    this.exportEnv = new ExportEnvUseCase(sharedGateway, config.profileDir(), config.copyToClipboard());
+    this.exportEnv =
+        new ExportEnvUseCase(sharedGateway, config.profileDir(), config.copyToClipboard());
     this.openInBrowser = new OpenAppInBrowserUseCase(config);
     this.exportKeystore = new ExportKeystoreUseCase(sharedGateway, config);
   }
@@ -302,7 +306,8 @@ final class ExportEnvUseCase {
     var vars = gateway.fetchAppEnvVars(app.guid());
     var result = EnvFileWriter.write(app, vars, config, CachePaths.envsDir(profileDir));
     var copied = copyToClipboard && ClipboardWriter.copy(result.path().toAbsolutePath().toString());
-    return new EnvWriteResult(result.path(), result.excludedKeys(), result.postProcessedKeys(), copied);
+    return new EnvWriteResult(
+        result.path(), result.excludedKeys(), result.postProcessedKeys(), copied);
   }
 }
 
@@ -359,7 +364,10 @@ record EnvExportConfig(List<String> excludeKeys, Map<String, Processor> postProc
  * write.
  */
 record EnvWriteResult(
-    Path path, List<String> excludedKeys, List<String> postProcessedKeys, boolean clipboardCopied) {}
+    Path path,
+    List<String> excludedKeys,
+    List<String> postProcessedKeys,
+    boolean clipboardCopied) {}
 
 /**
  * Writes a sorted {@code .env} file from a map of CF app environment variables.
@@ -374,8 +382,8 @@ final class EnvFileWriter {
     throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
   }
 
-  static EnvWriteResult write(App app, Map<String, String> vars, EnvExportConfig config, Path envsDir)
-      throws IOException {
+  static EnvWriteResult write(
+      App app, Map<String, String> vars, EnvExportConfig config, Path envsDir) throws IOException {
     var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
     var safeName = app.name().replaceAll("[^A-Za-z0-9._-]", "-").replaceAll("-+", "-");
     Files.createDirectories(envsDir);
@@ -384,10 +392,7 @@ final class EnvFileWriter {
     var entries = vars != null ? vars : Map.<String, String>of();
 
     var actualExcluded =
-        entries.keySet().stream()
-            .filter(k -> config.excludeKeys().contains(k))
-            .sorted()
-            .toList();
+        entries.keySet().stream().filter(k -> config.excludeKeys().contains(k)).sorted().toList();
 
     var entriesToWrite =
         entries.entrySet().stream()
@@ -407,7 +412,8 @@ final class EnvFileWriter {
             .map(e -> formatEntry(e.getKey(), e.getValue(), config.postProcessors()))
             .collect(Collectors.joining("\n"));
     Files.writeString(path, content.isEmpty() ? "" : content + "\n");
-    return new EnvWriteResult(path, List.copyOf(actualExcluded), List.copyOf(actualPostProcessed), false);
+    return new EnvWriteResult(
+        path, List.copyOf(actualExcluded), List.copyOf(actualPostProcessed), false);
   }
 
   private static String formatEntry(
@@ -562,7 +568,11 @@ final class CachedCatalogProvider implements CatalogProvider {
   private final boolean refresh;
 
   CachedCatalogProvider(
-      String uaaUrl, String cfApiUrl, String username, String password, boolean refresh,
+      String uaaUrl,
+      String cfApiUrl,
+      String username,
+      String password,
+      boolean refresh,
       Path cacheDir) {
     this.liveProvider = new LiveCatalogProvider(uaaUrl, cfApiUrl, username, password);
     this.cacheStore = new FileCatalogCacheStore(cacheDir);
@@ -846,9 +856,7 @@ final class KeystoreFileWriter {
   }
 
   static Path write(App app, byte[] bytes, String clearPassword, Path jksDir) throws IOException {
-    var timestamp =
-        DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
-            .format(LocalDateTime.now());
+    var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
     var safeName = app.name().replaceAll("[^A-Za-z0-9._-]", "-").replaceAll("-+", "-");
     Files.createDirectories(jksDir);
     var path = jksDir.resolve(safeName + "-pass_" + clearPassword + "-" + timestamp + ".jks");

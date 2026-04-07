@@ -23,7 +23,8 @@ record App(
     String updatedAt) {}
 
 /** A single certificate entry extracted from a JKS keystore. */
-record KeystoreEntry(String alias, String subjectDN, String issuer, String notBefore, String notAfter) {}
+record KeystoreEntry(
+    String alias, String subjectDN, String issuer, String notBefore, String notAfter) {}
 
 /**
  * Result of inspecting a JKS keystore.
@@ -286,7 +287,10 @@ sealed interface AppState
       return new AppState.EnvExporting(this, appName);
     }
 
-    /** Transitions to {@link KeystoreExporting} while the keystore inspection runs for the given app. */
+    /**
+     * Transitions to {@link KeystoreExporting} while the keystore inspection runs for the given
+     * app.
+     */
     AppState.KeystoreExporting toKeystoreExporting(String appName) {
       return new AppState.KeystoreExporting(this, appName);
     }
@@ -303,7 +307,9 @@ sealed interface AppState
 
     /** Transitions to {@link ExportDone} after a successful export. */
     AppState.ExportDone toDone(
-        String filePath, List<String> excludedKeys, List<String> postProcessedKeys,
+        String filePath,
+        List<String> excludedKeys,
+        List<String> postProcessedKeys,
         boolean clipboardCopied) {
       return new AppState.ExportDone(
           previous, appName, filePath, excludedKeys, postProcessedKeys, clipboardCopied);
