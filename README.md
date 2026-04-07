@@ -94,4 +94,4 @@ Powered by:
 - **[Jackson](https://github.com/FasterXML/jackson)** — JSON serialization for API responses and local cache
 - **[jbang](https://www.jbang.dev/)** — runs the whole thing as a script with zero build setup
 
-The architecture follows a strict render-thread model: all state lives in `Model`, mutated only via `runner().runOnRenderThread()`; `View` is a pure function over that state; background fetches are plain `CompletableFuture`s. The source is split across self-contained files — `Domain`, `Model`, `View`, `Infra`, `UseCases`, `Controller`, and `KeyHandler` — each with a single clear responsibility.
+The architecture follows a strict render-thread model: all state lives in `Model`, mutated only via `runner().runOnRenderThread()`; `View` is a pure function over that state; background fetches are plain `CompletableFuture`s. The source is organized into four files that reflect the MVC layers — `Model.java` (domain records + state), `View.java` (rendering + key handling), `Controller.java` (orchestration + use cases + infrastructure), and `CfExplorer.java` (entry point + wiring).

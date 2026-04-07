@@ -13,13 +13,9 @@
 //DEPS io.github.openfeign:feign-jackson:13.11
 //DEPS tools.jackson.core:jackson-databind:3.1.1
 
-//SOURCES Domain.java
 //SOURCES Model.java
 //SOURCES View.java
-//SOURCES Infra.java
-//SOURCES UseCases.java
 //SOURCES Controller.java
-//SOURCES KeyHandler.java
 
 package cf.explorer;
 

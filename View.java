@@ -14,12 +14,24 @@ import static java.util.Comparator.comparingInt;
 import dev.tamboui.style.Color;
 import dev.tamboui.toolkit.element.Element;
 import dev.tamboui.toolkit.element.StyledElement;
+import dev.tamboui.toolkit.event.EventResult;
+import dev.tamboui.tui.bindings.ActionHandler;
+import dev.tamboui.tui.bindings.Actions;
+import dev.tamboui.tui.bindings.BindingSets;
+import dev.tamboui.tui.bindings.Bindings;
+import dev.tamboui.tui.bindings.KeyTrigger;
+import dev.tamboui.tui.event.Event;
+import dev.tamboui.tui.event.KeyCode;
+import dev.tamboui.tui.event.KeyEvent;
 import dev.tamboui.widgets.spinner.SpinnerStyle;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+
+// --- View ---
 
 /**
  * Renders the UI from the current {@link AppState} exposed by {@link Controller}.
@@ -27,7 +39,7 @@ import java.util.Locale;
  * <p>The view is split into nested classes per screen phase. Stateful animated widgets are owned by
  * long-lived instances so animation state survives across render calls.
  */
-public final class View {
+final class View {
 
   private final Controller controller;
   private final KeyHandler keyHandler;
@@ -423,7 +435,7 @@ public final class View {
 
       var today = LocalDate.now();
       for (var entry : s.result().entries()) {
-        var expiry = java.time.LocalDateTime.parse(entry.notAfter(), DATE_FMT).toLocalDate();
+        var expiry = LocalDateTime.parse(entry.notAfter(), DATE_FMT).toLocalDate();
         var expiryText = !expiry.isAfter(today)
             ? text(entry.notAfter()).red().bold()
             : expiry.minusDays(30).isBefore(today)
@@ -559,6 +571,140 @@ public final class View {
         }
       }
       return merged;
+    }
+  }
+}
+
+// --- Key Handling ---
+
+/**
+ * Routes key events to the action handler that matches the current application state.
+ *
+ * <p>All methods are called from the render thread. Each screen phase is served by a dedicated
+ * {@link ActionHandler} so that the same key can mean different things depending on the current
+ * state.
+ */
+final class KeyHandler {
+
+  private final Controller controller;
+  private final ActionHandler browsingHandler;
+  private final ActionHandler exportResultHandler;
+
+  KeyHandler(Controller controller) {
+    this.controller = controller;
+    this.browsingHandler = new BrowsingHandlers(controller).build();
+    this.exportResultHandler = new ExportResultHandlers(controller).build();
+  }
+
+  EventResult handle(KeyEvent event) {
+    var state = controller.state();
+    if (state instanceof AppState.CatalogLoading
+        || state instanceof AppState.EnvExporting
+        || state instanceof AppState.KeystoreExporting)
+      return EventResult.HANDLED;
+    if (state instanceof AppState.Browsing) return dispatch(event, browsingHandler);
+    if (state instanceof AppState.ExportDone || state instanceof AppState.ExportFailed)
+      return dispatch(event, exportResultHandler);
+    if (state instanceof AppState.KeystoreDone || state instanceof AppState.KeystoreFailed)
+      return dispatch(event, exportResultHandler);
+    return EventResult.UNHANDLED;
+  }
+
+  private static EventResult dispatch(KeyEvent event, ActionHandler handler) {
+    return handler.dispatch(event) ? EventResult.HANDLED : EventResult.UNHANDLED;
+  }
+
+  private static final class BrowsingHandlers {
+
+    private static final String APPEND_FILTER_CHARACTER = "appendFilterCharacter";
+    private static final String OPEN_IN_BROWSER = "openInBrowser";
+    private static final String EXPORT_KEYSTORE = "exportKeystore";
+
+    private static final Bindings BINDINGS =
+        BindingSets.defaults().toBuilder()
+            .bind(KeyTrigger.key(KeyCode.CHAR), BrowsingHandlers.APPEND_FILTER_CHARACTER)
+            .rebind(KeyTrigger.key(KeyCode.ENTER), Actions.SELECT)
+            .rebind(KeyTrigger.ctrl('h'), Actions.DELETE_BACKWARD)
+            .bind(KeyTrigger.ctrl('o'), BrowsingHandlers.OPEN_IN_BROWSER)
+            .bind(KeyTrigger.ctrl('k'), BrowsingHandlers.EXPORT_KEYSTORE)
+            .build();
+
+    private final Controller controller;
+
+    BrowsingHandlers(Controller controller) {
+      this.controller = controller;
+    }
+
+    ActionHandler build() {
+      return new ActionHandler(BINDINGS)
+          .on(Actions.MOVE_UP, this::handleMoveUp)
+          .on(Actions.MOVE_DOWN, this::handleMoveDown)
+          .on(APPEND_FILTER_CHARACTER, this::handleAppendFilterCharacter)
+          .on(Actions.SELECT, this::handleSelectCurrentApp)
+          .on(OPEN_IN_BROWSER, this::handleOpenCurrentAppInBrowser)
+          .on(EXPORT_KEYSTORE, this::handleExportKeystore)
+          .on(Actions.DELETE_BACKWARD, this::handleBackspaceFilter)
+          .on(Actions.CANCEL, this::handleClearFilter);
+    }
+
+    private void handleMoveUp(Event event) {
+      controller.moveUp();
+    }
+
+    private void handleMoveDown(Event event) {
+      controller.moveDown();
+    }
+
+    private void handleAppendFilterCharacter(Event event) {
+      controller.appendFilter(((KeyEvent) event).character());
+    }
+
+    private void handleSelectCurrentApp(Event event) {
+      var app = selectedApp();
+      if (app != null) controller.selectApp(app);
+    }
+
+    private void handleOpenCurrentAppInBrowser(Event event) {
+      var app = selectedApp();
+      if (app != null) controller.openInBrowser(app);
+    }
+
+    private void handleExportKeystore(Event event) {
+      var app = selectedApp();
+      if (app != null) controller.exportKeystore(app);
+    }
+
+    private void handleBackspaceFilter(Event event) {
+      controller.backspaceFilter();
+    }
+
+    private void handleClearFilter(Event event) {
+      controller.clearFilter();
+    }
+
+    private App selectedApp() {
+      return browsing().selectedApp();
+    }
+
+    private AppState.Browsing browsing() {
+      return (AppState.Browsing) controller.state();
+    }
+  }
+
+  private static final class ExportResultHandlers {
+    private final Controller controller;
+
+    ExportResultHandlers(Controller controller) {
+      this.controller = controller;
+    }
+
+    ActionHandler build() {
+      return new ActionHandler(BindingSets.defaults())
+          .on(Actions.CANCEL, this::handleReturnToBrowsing);
+    }
+
+    private void handleReturnToBrowsing(Event event) {
+      controller.returnToBrowsing();
     }
   }
 }
