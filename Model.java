@@ -9,7 +9,10 @@ sealed interface AppState
         AppState.Browsing,
         AppState.EnvExporting,
         AppState.ExportDone,
-        AppState.ExportFailed {
+        AppState.ExportFailed,
+        AppState.KeystoreExporting,
+        AppState.KeystoreDone,
+        AppState.KeystoreFailed {
 
   /** Immutable snapshot of org/space/app totals displayed in the title bar on every screen. */
   record HeaderCounts(int orgs, int spaces, int apps) {}
@@ -162,6 +165,11 @@ sealed interface AppState
     AppState.EnvExporting toExporting(String appName) {
       return new AppState.EnvExporting(this, appName);
     }
+
+    /** Transitions to {@link KeystoreExporting} while the keystore inspection runs for the given app. */
+    AppState.KeystoreExporting toKeystoreExporting(String appName) {
+      return new AppState.KeystoreExporting(this, appName);
+    }
   }
 
   /**
@@ -210,6 +218,52 @@ sealed interface AppState
    * back to the app list.
    */
   record ExportFailed(Browsing previous, String errorMessage) implements AppState {
+    HeaderCounts header() {
+      return previous.header();
+    }
+
+    Browsing back() {
+      return previous;
+    }
+  }
+
+  /**
+   * A keystore inspection is in progress for {@code appName}. Retains the preceding {@link
+   * Browsing} state so that back-navigation restores it exactly.
+   */
+  record KeystoreExporting(Browsing previous, String appName) implements AppState {
+    HeaderCounts header() {
+      return previous.header();
+    }
+
+    AppState.KeystoreDone toDone(KeystoreInspectResult result) {
+      return new AppState.KeystoreDone(previous, appName, result);
+    }
+
+    AppState.KeystoreFailed toFailed(String errorMessage) {
+      return new AppState.KeystoreFailed(previous, errorMessage);
+    }
+  }
+
+  /**
+   * The keystore inspection completed successfully. Carries the file path and certificate entries.
+   */
+  record KeystoreDone(Browsing previous, String appName, KeystoreInspectResult result)
+      implements AppState {
+    HeaderCounts header() {
+      return previous.header();
+    }
+
+    Browsing back() {
+      return previous;
+    }
+  }
+
+  /**
+   * The keystore inspection failed. Retains the preceding {@link Browsing} state so the user can
+   * ESC back to the app list.
+   */
+  record KeystoreFailed(Browsing previous, String errorMessage) implements AppState {
     HeaderCounts header() {
       return previous.header();
     }

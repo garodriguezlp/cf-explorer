@@ -3,9 +3,14 @@ package cf.explorer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -24,11 +29,13 @@ final class UseCases {
   private final LoadCatalogUseCase loadCatalog;
   private final ExportEnvUseCase exportEnv;
   private final OpenAppInBrowserUseCase openInBrowser;
+  private final ExportKeystoreUseCase exportKeystore;
 
   UseCases(EnvConfig config) {
     this.loadCatalog = new LoadCatalogUseCase(config);
     this.exportEnv = new ExportEnvUseCase(config);
     this.openInBrowser = new OpenAppInBrowserUseCase(config);
+    this.exportKeystore = new ExportKeystoreUseCase(config);
   }
 
   LoadCatalogUseCase loadCatalog() {
@@ -41,6 +48,10 @@ final class UseCases {
 
   OpenAppInBrowserUseCase openInBrowser() {
     return openInBrowser;
+  }
+
+  ExportKeystoreUseCase keystoreUseCase() {
+    return exportKeystore;
   }
 }
 
@@ -201,5 +212,94 @@ final class EnvFileWriter {
   static String wrapInSingleQuotes(String value) {
     if (value == null || value.isEmpty()) return "''";
     return "'" + value.replace("'", "'\\''") + "'";
+  }
+}
+
+/**
+ * Fetches the base64-encoded JKS keystore for a specific app, decodes it, writes it to disk, and
+ * inspects its certificate entries.
+ */
+final class ExportKeystoreUseCase {
+
+  private static final DateTimeFormatter DATE_FMT =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+  private final FeignCfPlatformGateway gateway;
+  private final String keystoreVar;
+  private final String keystorePasswordVar;
+
+  ExportKeystoreUseCase(EnvConfig config) {
+    this.gateway =
+        new FeignCfPlatformGateway(
+            config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
+    this.keystoreVar = config.keystoreVar();
+    this.keystorePasswordVar = config.keystorePasswordVar();
+  }
+
+  KeystoreInspectResult execute(App app) throws Exception {
+    var vars = gateway.fetchAppEnvVars(app.guid());
+
+    var encodedKeystore = vars.get(keystoreVar);
+    if (encodedKeystore == null) {
+      throw new IllegalStateException(
+          "Environment variable '" + keystoreVar + "' not found for app '" + app.name() + "'");
+    }
+
+    var encodedPassword = vars.get(keystorePasswordVar);
+    if (encodedPassword == null) {
+      throw new IllegalStateException(
+          "Environment variable '" + keystorePasswordVar + "' not found for app '" + app.name() + "'");
+    }
+
+    final byte[] bytes;
+    try {
+      bytes = Base64.getDecoder().decode(encodedKeystore.strip());
+    } catch (IllegalArgumentException ex) {
+      throw new IllegalStateException(
+          "Value of '" + keystoreVar + "' is not valid Base64: " + ex.getMessage(), ex);
+    }
+
+    final String clearPassword;
+    try {
+      clearPassword = new String(Base64.getDecoder().decode(encodedPassword.strip()));
+    } catch (IllegalArgumentException ex) {
+      throw new IllegalStateException(
+          "Value of '" + keystorePasswordVar + "' is not valid Base64: " + ex.getMessage(), ex);
+    }
+
+    var jksPath = KeystoreFileWriter.write(app, bytes, clearPassword);
+
+    try {
+      var ks = KeyStore.getInstance("JKS");
+      try (var is = new java.io.ByteArrayInputStream(bytes)) {
+        ks.load(is, clearPassword.toCharArray());
+      }
+      var entries = new ArrayList<KeystoreEntry>();
+      var aliases = Collections.list(ks.aliases());
+      for (var alias : aliases) {
+        var cert = ks.getCertificate(alias);
+        if (cert instanceof X509Certificate x509) {
+          var subjectDN = x509.getSubjectX500Principal().getName();
+          var issuer = x509.getIssuerX500Principal().getName();
+          var notBefore =
+              x509.getNotBefore()
+                  .toInstant()
+                  .atZone(ZoneId.systemDefault())
+                  .toLocalDateTime()
+                  .format(DATE_FMT);
+          var notAfter =
+              x509.getNotAfter()
+                  .toInstant()
+                  .atZone(ZoneId.systemDefault())
+                  .toLocalDateTime()
+                  .format(DATE_FMT);
+          entries.add(new KeystoreEntry(alias, subjectDN, issuer, notBefore, notAfter));
+        }
+      }
+      entries.sort(java.util.Comparator.comparing(KeystoreEntry::alias));
+      return KeystoreInspectResult.success(jksPath, List.copyOf(entries));
+    } catch (Exception ex) {
+      return KeystoreInspectResult.partial(jksPath, ex.getMessage());
+    }
   }
 }

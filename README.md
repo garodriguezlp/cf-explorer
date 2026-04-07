@@ -42,6 +42,8 @@ jbang run cf-explorer@garodriguezlp/cf-explorer
 | `--fresh` | — | `false` | Bypass local cache and fetch fresh data from CF |
 | `--exclude-key` | — | `TRUSTSTORE` | Keys to exclude from the exported `.env` (repeatable) |
 | `--post-process` | — | `SPRING_APPLICATION_JSON=JSON` | Apply a named processor to a key (repeatable) |
+| `--keystore-var` | `KEYSTORE_VAR` | `KEYSTORE` | CF env var holding the base64-encoded JKS keystore |
+| `--keystore-password-var` | `KEYSTORE_PASSWORD_VAR` | `KEYSTORE_PASSWORD` | CF env var holding the base64-encoded keystore password |
 
 You can also drop a `CfExplorer.properties` file next to the script and PicoCLI will pick it up automatically.
 
@@ -52,11 +54,12 @@ You can also drop a `CfExplorer.properties` file next to the script and PicoCLI 
 | `↑` / `↓` | Navigate the app list |
 | `Enter` | Export `.env` for the selected app |
 | `Ctrl+O` | Open the selected app in Apps Manager (browser) |
+| `Ctrl+K` | Inspect the JKS keystore for the selected app |
 | type | Filter apps by name |
 | `Esc` | Clear the filter |
 | `Ctrl+C` / `q` | Quit |
 
-**Output** — selecting an app writes `<app-name>-<guid>.env` under `~/.cf-explorer/envs/`, ready to `source`.
+**Output** — selecting an app writes `<app-name>-<timestamp>.env` under `~/.cf-explorer/envs/`, ready to `source`. Pressing `Ctrl+K` writes the decoded JKS to `~/.cf-explorer/jks/` and displays each certificate's alias, subject DN, issuer, and expiry (color-coded by freshness).
 
 ## Try it locally with WireMock
 

@@ -31,10 +31,14 @@ final class KeyHandler {
 
   EventResult handle(KeyEvent event) {
     var state = controller.state();
-    if (state instanceof AppState.CatalogLoading || state instanceof AppState.EnvExporting)
+    if (state instanceof AppState.CatalogLoading
+        || state instanceof AppState.EnvExporting
+        || state instanceof AppState.KeystoreExporting)
       return EventResult.HANDLED;
     if (state instanceof AppState.Browsing) return dispatch(event, browsingHandler);
     if (state instanceof AppState.ExportDone || state instanceof AppState.ExportFailed)
+      return dispatch(event, exportResultHandler);
+    if (state instanceof AppState.KeystoreDone || state instanceof AppState.KeystoreFailed)
       return dispatch(event, exportResultHandler);
     return EventResult.UNHANDLED;
   }
@@ -47,6 +51,7 @@ final class KeyHandler {
 
     private static final String APPEND_FILTER_CHARACTER = "appendFilterCharacter";
     private static final String OPEN_IN_BROWSER = "openInBrowser";
+    private static final String EXPORT_KEYSTORE = "exportKeystore";
 
     private static final Bindings BINDINGS =
         BindingSets.defaults().toBuilder()
@@ -54,6 +59,7 @@ final class KeyHandler {
             .rebind(KeyTrigger.key(KeyCode.ENTER), Actions.SELECT)
             .rebind(KeyTrigger.ctrl('h'), Actions.DELETE_BACKWARD)
             .bind(KeyTrigger.ctrl('o'), BrowsingHandlers.OPEN_IN_BROWSER)
+            .bind(KeyTrigger.ctrl('k'), BrowsingHandlers.EXPORT_KEYSTORE)
             .build();
 
     private final Controller controller;
@@ -69,6 +75,7 @@ final class KeyHandler {
           .on(APPEND_FILTER_CHARACTER, this::handleAppendFilterCharacter)
           .on(Actions.SELECT, this::handleSelectCurrentApp)
           .on(OPEN_IN_BROWSER, this::handleOpenCurrentAppInBrowser)
+          .on(EXPORT_KEYSTORE, this::handleExportKeystore)
           .on(Actions.DELETE_BACKWARD, this::handleBackspaceFilter)
           .on(Actions.CANCEL, this::handleClearFilter);
     }
@@ -93,6 +100,11 @@ final class KeyHandler {
     private void handleOpenCurrentAppInBrowser(Event event) {
       var app = selectedApp();
       if (app != null) controller.openInBrowser(app);
+    }
+
+    private void handleExportKeystore(Event event) {
+      var app = selectedApp();
+      if (app != null) controller.exportKeystore(app);
     }
 
     private void handleBackspaceFilter(Event event) {

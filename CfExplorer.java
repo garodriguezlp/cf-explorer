@@ -93,6 +93,20 @@ public class CfExplorer implements Callable<Integer> {
       defaultValue = "SPRING_APPLICATION_JSON=JSON")
   private Map<String, Processor> postProcessors;
 
+  @Option(
+      names = "--keystore-var",
+      description =
+          "Name of the CF env var that holds the base64-encoded JKS keystore.",
+      defaultValue = "${KEYSTORE_VAR:-KEYSTORE}")
+  private String keystoreVar;
+
+  @Option(
+      names = "--keystore-password-var",
+      description =
+          "Name of the CF env var that holds the base64-encoded keystore password.",
+      defaultValue = "${KEYSTORE_PASSWORD_VAR:-KEYSTORE_PASSWORD}")
+  private String keystorePasswordVar;
+
   public static void main(String[] args) {
     int exitCode = new CommandLine(new CfExplorer()).execute(args);
     System.exit(exitCode);
@@ -109,7 +123,9 @@ public class CfExplorer implements Callable<Integer> {
             cfWebUrl,
             fresh,
             List.copyOf(excludeKeys),
-            Map.copyOf(postProcessors));
+            Map.copyOf(postProcessors),
+            keystoreVar,
+            keystorePasswordVar);
     new Launcher(config).run();
     return 0;
   }
@@ -123,7 +139,9 @@ record EnvConfig(
     String cfWebUrl,
     boolean fresh,
     List<String> excludeKeys,
-    Map<String, Processor> postProcessors) {}
+    Map<String, Processor> postProcessors,
+    String keystoreVar,
+    String keystorePasswordVar) {}
 
 final class Launcher extends ToolkitApp {
 

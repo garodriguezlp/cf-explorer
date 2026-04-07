@@ -15,6 +15,8 @@ import dev.tamboui.style.Color;
 import dev.tamboui.toolkit.element.Element;
 import dev.tamboui.toolkit.element.StyledElement;
 import dev.tamboui.widgets.spinner.SpinnerStyle;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -36,6 +38,9 @@ public final class View {
   /** Holds exporting animation state across render calls. */
   private final EnvExporting envExporting = new EnvExporting();
 
+  /** Holds keystore-exporting animation state across render calls. */
+  private final KeystoreExporting keystoreExporting = new KeystoreExporting();
+
   View(Controller controller, KeyHandler keyHandler) {
     this.controller = controller;
     this.keyHandler = keyHandler;
@@ -50,6 +55,9 @@ public final class View {
     if (state instanceof AppState.EnvExporting s) return envExporting.render(s);
     if (state instanceof AppState.ExportDone s) return ExportDone.render(s, keyHandler);
     if (state instanceof AppState.ExportFailed s) return ExportFailed.render(s, keyHandler);
+    if (state instanceof AppState.KeystoreExporting s) return keystoreExporting.render(s);
+    if (state instanceof AppState.KeystoreDone s) return KeystoreDone.render(s, keyHandler);
+    if (state instanceof AppState.KeystoreFailed s) return KeystoreFailed.render(s, keyHandler);
     throw new IllegalStateException("Unhandled state: " + state);
   }
 
@@ -215,8 +223,8 @@ public final class View {
 
     private static Element footer() {
       var hint =
-          "↑↓ navigate  |  Enter export .env  |  Ctrl+O open in browser  |  type to filter  |  Esc"
-              + " clear  |  Ctrl+C quit";
+          "\u2191\u2193 navigate  |  Enter export .env  |  Ctrl+O open in browser  |  Ctrl+K"
+              + " inspect keystore  |  type to filter  |  Esc clear  |  Ctrl+C quit";
       return panel(text(hint).dim()).rounded().borderColor(Color.DARK_GRAY);
     }
 
@@ -313,6 +321,124 @@ public final class View {
           .rounded()
           .borderColor(Color.RED)
           .title("Error")
+          .fill(1)
+          .focusable()
+          .onKeyEvent(keyHandler::handle);
+    }
+  }
+
+  static final class KeystoreExporting {
+
+    private final Element spinnerWidget = spinner(SpinnerStyle.BOUNCING_BAR).cyan();
+
+    Element render(AppState.KeystoreExporting s) {
+      return dock()
+          .top(Shared.title(s.header().orgs(), s.header().spaces(), s.header().apps()))
+          .center(body(s))
+          .bottom(Shared.waitHint());
+    }
+
+    private Element body(AppState.KeystoreExporting s) {
+      return panel(
+              column(
+                  text(""),
+                  row(
+                      spinnerWidget,
+                      text("  Inspecting keystore for  ").dim(),
+                      text(s.appName()).bold().cyan(),
+                      text("...").dim()),
+                  text("")))
+          .rounded()
+          .borderColor(Color.CYAN)
+          .title("Inspecting keystore...")
+          .fill(1);
+    }
+  }
+
+  static final class KeystoreDone {
+
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    static Element render(AppState.KeystoreDone s, KeyHandler keyHandler) {
+      return dock()
+          .top(Shared.title(s.header().orgs(), s.header().spaces(), s.header().apps()))
+          .center(body(s, keyHandler))
+          .bottom(Shared.backOrQuitHint());
+    }
+
+    private static Element body(AppState.KeystoreDone s, KeyHandler keyHandler) {
+      var items = new ArrayList<Element>();
+      items.add(text(""));
+      items.add(
+          row(
+              text("  \u2713  ").green().bold(),
+              text("saved to ").dim(),
+              text(s.result().jksPath().toString()).bold().cyan()));
+      items.add(text(""));
+
+      if (!s.result().inspected()) {
+        items.add(
+            row(
+                text("  \u26a0  ").yellow().bold(),
+                text("Could not inspect keystore: ").dim(),
+                text(s.result().inspectionError()).yellow()));
+        items.add(text(""));
+        items.add(text("  The file was saved but could not be inspected (wrong password or corrupted JKS).").dim());
+        items.add(text(""));
+        return panel(column(items.toArray(new Element[0])))
+            .rounded()
+            .borderColor(Color.YELLOW)
+            .title("Keystore saved — " + s.appName())
+            .fill(1)
+            .focusable()
+            .onKeyEvent(keyHandler::handle);
+      }
+
+      var today = LocalDate.now();
+      for (var entry : s.result().entries()) {
+        var expiry = java.time.LocalDateTime.parse(entry.notAfter(), DATE_FMT).toLocalDate();
+        var expiryText = !expiry.isAfter(today)
+            ? text(entry.notAfter()).red().bold()
+            : expiry.minusDays(30).isBefore(today)
+                ? text(entry.notAfter()).yellow().bold()
+                : text(entry.notAfter()).green().bold();
+        items.add(row(text("  Alias:       ").dim(), text(entry.alias()).cyan().bold()));
+        items.add(row(text("    Subject:     ").dim(), text(entry.subjectDN())));
+        items.add(row(text("    Issuer:      ").dim(), text(entry.issuer()).dim()));
+        items.add(row(text("    Valid from:  ").dim(), text(entry.notBefore()).dim()));
+        items.add(row(text("    Valid until: ").dim(), expiryText));
+        items.add(text(""));
+      }
+
+      return panel(column(items.toArray(new Element[0])))
+          .rounded()
+          .borderColor(Color.GREEN)
+          .title("Keystore — " + s.appName())
+          .fill(1)
+          .focusable()
+          .onKeyEvent(keyHandler::handle);
+    }
+  }
+
+  static final class KeystoreFailed {
+
+    static Element render(AppState.KeystoreFailed s, KeyHandler keyHandler) {
+      return dock()
+          .top(Shared.title(s.header().orgs(), s.header().spaces(), s.header().apps()))
+          .center(body(s, keyHandler))
+          .bottom(Shared.backOrQuitHint());
+    }
+
+    private static Element body(AppState.KeystoreFailed s, KeyHandler keyHandler) {
+      return panel(
+              column(
+                  text(""),
+                  text("  Keystore inspection failed").bold().red(),
+                  text(""),
+                  text("  " + s.errorMessage()).dim()))
+          .rounded()
+          .borderColor(Color.RED)
+          .title("Keystore Error")
           .fill(1)
           .focusable()
           .onKeyEvent(keyHandler::handle);

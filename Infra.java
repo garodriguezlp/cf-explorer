@@ -330,6 +330,32 @@ final class CachePaths {
   static Path defaultEnvsDir() {
     return Path.of(System.getProperty("user.home", "."), ".cf-explorer", "envs");
   }
+
+  static Path defaultJksDir() {
+    return Path.of(System.getProperty("user.home", "."), ".cf-explorer", "jks");
+  }
+}
+
+/**
+ * Writes a raw JKS byte array to disk with a timestamped filename under the default jks directory.
+ */
+final class KeystoreFileWriter {
+
+  private KeystoreFileWriter() {
+    throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+  }
+
+  static Path write(App app, byte[] bytes, String clearPassword) throws IOException {
+    var timestamp =
+        java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+            .format(java.time.LocalDateTime.now());
+    var safeName = app.name().replaceAll("[^A-Za-z0-9._-]", "-").replaceAll("-+", "-");
+    var dir = CachePaths.defaultJksDir();
+    Files.createDirectories(dir);
+    var path = dir.resolve(safeName + "-pass_" + clearPassword + "-" + timestamp + ".jks");
+    Files.write(path, bytes);
+    return path;
+  }
 }
 
 /**

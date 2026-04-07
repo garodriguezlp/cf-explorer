@@ -1,5 +1,6 @@
 package cf.explorer;
 
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +26,31 @@ record App(
     String orgName,
     String createdAt,
     String updatedAt) {}
+
+/** A single certificate entry extracted from a JKS keystore. */
+record KeystoreEntry(String alias, String subjectDN, String issuer, String notBefore, String notAfter) {}
+
+/**
+ * Result of inspecting a JKS keystore.
+ *
+ * <p>Always carries the path where raw bytes were written. When {@link #inspectionError()} is
+ * {@code null} the cert entries are valid; when non-null the file was saved but the JKS could not
+ * be parsed and {@link #entries()} will be empty.
+ */
+record KeystoreInspectResult(Path jksPath, List<KeystoreEntry> entries, String inspectionError) {
+
+  static KeystoreInspectResult success(Path jksPath, List<KeystoreEntry> entries) {
+    return new KeystoreInspectResult(jksPath, entries, null);
+  }
+
+  static KeystoreInspectResult partial(Path jksPath, String error) {
+    return new KeystoreInspectResult(jksPath, List.of(), error);
+  }
+
+  boolean inspected() {
+    return inspectionError == null;
+  }
+}
 
 /**
  * Joins raw CF organizations, spaces, and apps into {@link App} domain records.

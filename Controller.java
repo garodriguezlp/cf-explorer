@@ -18,6 +18,7 @@ final class Controller {
   private final LoadCatalogUseCase loadCatalogUseCase;
   private final ExportEnvUseCase exportEnvUseCase;
   private final OpenAppInBrowserUseCase openInBrowserUseCase;
+  private final ExportKeystoreUseCase exportKeystoreUseCase;
   private final EnvExportConfig exportConfig;
   private final UiDispatcher dispatch;
 
@@ -26,6 +27,7 @@ final class Controller {
     this.loadCatalogUseCase = useCases.loadCatalog();
     this.exportEnvUseCase = useCases.exportEnv();
     this.openInBrowserUseCase = useCases.openInBrowser();
+    this.exportKeystoreUseCase = useCases.keystoreUseCase();
     this.exportConfig = new EnvExportConfig(config.excludeKeys(), config.postProcessors());
     this.dispatch = dispatch;
   }
@@ -59,6 +61,8 @@ final class Controller {
   void returnToBrowsing() {
     if (state instanceof AppState.ExportDone d) state = d.back();
     else if (state instanceof AppState.ExportFailed f) state = f.back();
+    else if (state instanceof AppState.KeystoreDone d) state = d.back();
+    else if (state instanceof AppState.KeystoreFailed f) state = f.back();
   }
 
   // ── Async commands ─────────────────────────────────────────────────
@@ -87,6 +91,24 @@ final class Controller {
     CompletableFuture.runAsync(() -> openInBrowserUseCase.execute(app));
   }
 
+  void exportKeystore(App app) {
+    if (state instanceof AppState.Browsing b) state = b.toKeystoreExporting(app.name());
+    CompletableFuture.supplyAsync(
+            () -> {
+              try {
+                return exportKeystoreUseCase.execute(app);
+              } catch (Exception ex) {
+                throw new RuntimeException(ex);
+              }
+            })
+        .thenAccept(result -> dispatch.dispatch(() -> onKeystoreDone(result)))
+        .exceptionally(
+            ex -> {
+              dispatch.dispatch(() -> onKeystoreFailed(ex));
+              return null;
+            });
+  }
+
   // ── Private helpers ────────────────────────────────────────────────
   private void transitionToExporting(App app) {
     if (state instanceof AppState.Browsing b) state = b.toExporting(app.name());
@@ -107,6 +129,14 @@ final class Controller {
 
   private void onExportFailed(Throwable ex) {
     if (state instanceof AppState.EnvExporting e) state = e.toFailed(unwrap(ex).getMessage());
+  }
+
+  private void onKeystoreDone(KeystoreInspectResult result) {
+    if (state instanceof AppState.KeystoreExporting k) state = k.toDone(result);
+  }
+
+  private void onKeystoreFailed(Throwable ex) {
+    if (state instanceof AppState.KeystoreExporting k) state = k.toFailed(unwrap(ex).getMessage());
   }
 
   private void onCatalogLoaded(List<App> apps) {
