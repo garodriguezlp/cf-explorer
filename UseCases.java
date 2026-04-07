@@ -11,6 +11,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -32,10 +33,13 @@ final class UseCases {
   private final ExportKeystoreUseCase exportKeystore;
 
   UseCases(EnvConfig config) {
+    var sharedGateway =
+        new FeignCfPlatformGateway(
+            config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
     this.loadCatalog = new LoadCatalogUseCase(config);
-    this.exportEnv = new ExportEnvUseCase(config);
+    this.exportEnv = new ExportEnvUseCase(sharedGateway, config.profileDir());
     this.openInBrowser = new OpenAppInBrowserUseCase(config);
-    this.exportKeystore = new ExportKeystoreUseCase(config);
+    this.exportKeystore = new ExportKeystoreUseCase(sharedGateway, config);
   }
 
   LoadCatalogUseCase loadCatalog() {
@@ -85,11 +89,9 @@ final class ExportEnvUseCase {
   private final FeignCfPlatformGateway gateway;
   private final Path profileDir;
 
-  ExportEnvUseCase(EnvConfig config) {
-    this.gateway =
-        new FeignCfPlatformGateway(
-            config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
-    this.profileDir = config.profileDir();
+  ExportEnvUseCase(FeignCfPlatformGateway gateway, Path profileDir) {
+    this.gateway = gateway;
+    this.profileDir = profileDir;
   }
 
   EnvWriteResult execute(App app, EnvExportConfig config) throws IOException {
@@ -173,34 +175,41 @@ final class EnvFileWriter {
     var path = envsDir.resolve(safeName + "-" + timestamp + ".env");
 
     var entries = vars != null ? vars : Map.<String, String>of();
-    var actualExcluded = new ArrayList<String>();
-    var actualPostProcessed = new ArrayList<String>();
+
+    var actualExcluded =
+        entries.keySet().stream()
+            .filter(k -> config.excludeKeys().contains(k))
+            .sorted()
+            .toList();
+
+    var entriesToWrite =
+        entries.entrySet().stream()
+            .filter(e -> !config.excludeKeys().contains(e.getKey()))
+            .sorted(Map.Entry.comparingByKey())
+            .toList();
+
+    var actualPostProcessed =
+        entriesToWrite.stream()
+            .filter(e -> config.postProcessors().containsKey(e.getKey()))
+            .map(Map.Entry::getKey)
+            .sorted()
+            .toList();
 
     var content =
-        entries.entrySet().stream()
-            .filter(
-                e -> {
-                  if (config.excludeKeys().contains(e.getKey())) {
-                    actualExcluded.add(e.getKey());
-                    return false;
-                  }
-                  return true;
-                })
-            .sorted(Map.Entry.comparingByKey())
-            .map(
-                e -> {
-                  var processor = config.postProcessors().get(e.getKey());
-                  if (processor != null) {
-                    actualPostProcessed.add(e.getKey());
-                    return e.getKey() + "=" + wrapInSingleQuotes(processor.process(e.getValue()));
-                  }
-                  return e.getKey() + "=" + escapeEnvValue(e.getValue());
-                })
+        entriesToWrite.stream()
+            .map(e -> formatEntry(e.getKey(), e.getValue(), config.postProcessors()))
             .collect(Collectors.joining("\n"));
     Files.writeString(path, content.isEmpty() ? "" : content + "\n");
-    actualExcluded.sort(null);
-    actualPostProcessed.sort(null);
     return new EnvWriteResult(path, List.copyOf(actualExcluded), List.copyOf(actualPostProcessed));
+  }
+
+  private static String formatEntry(
+      String key, String value, Map<String, Processor> postProcessors) {
+    var processor = postProcessors.get(key);
+    if (processor != null) {
+      return key + "=" + wrapInSingleQuotes(processor.process(value));
+    }
+    return key + "=" + escapeEnvValue(value);
   }
 
   /** Strips boundary double-quotes from a raw CF value, then wraps it in single quotes. */
@@ -231,10 +240,8 @@ final class ExportKeystoreUseCase {
   private final String keystorePasswordVar;
   private final Path jksDir;
 
-  ExportKeystoreUseCase(EnvConfig config) {
-    this.gateway =
-        new FeignCfPlatformGateway(
-            config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
+  ExportKeystoreUseCase(FeignCfPlatformGateway gateway, EnvConfig config) {
+    this.gateway = gateway;
     this.keystoreVar = config.keystoreVar();
     this.keystorePasswordVar = config.keystorePasswordVar();
     this.jksDir = CachePaths.jksDir(config.profileDir());
@@ -242,68 +249,74 @@ final class ExportKeystoreUseCase {
 
   KeystoreInspectResult execute(App app) throws Exception {
     var vars = gateway.fetchAppEnvVars(app.guid());
-
-    var encodedKeystore = vars.get(keystoreVar);
-    if (encodedKeystore == null) {
-      throw new IllegalStateException(
-          "Environment variable '" + keystoreVar + "' not found for app '" + app.name() + "'");
-    }
-
-    var encodedPassword = vars.get(keystorePasswordVar);
-    if (encodedPassword == null) {
-      throw new IllegalStateException(
-          "Environment variable '" + keystorePasswordVar + "' not found for app '" + app.name() + "'");
-    }
-
-    final byte[] bytes;
+    var keystoreBytes = decodeBase64EnvVar(vars, keystoreVar, app.name());
+    var clearPassword = decodeBase64EnvVarAsString(vars, keystorePasswordVar, app.name());
+    var jksPath = KeystoreFileWriter.write(app, keystoreBytes, clearPassword, jksDir);
     try {
-      bytes = Base64.getDecoder().decode(encodedKeystore.strip());
-    } catch (IllegalArgumentException ex) {
-      throw new IllegalStateException(
-          "Value of '" + keystoreVar + "' is not valid Base64: " + ex.getMessage(), ex);
-    }
-
-    final String clearPassword;
-    try {
-      clearPassword = new String(Base64.getDecoder().decode(encodedPassword.strip()));
-    } catch (IllegalArgumentException ex) {
-      throw new IllegalStateException(
-          "Value of '" + keystorePasswordVar + "' is not valid Base64: " + ex.getMessage(), ex);
-    }
-
-    var jksPath = KeystoreFileWriter.write(app, bytes, clearPassword, jksDir);
-
-    try {
-      var ks = KeyStore.getInstance("JKS");
-      try (var is = new java.io.ByteArrayInputStream(bytes)) {
-        ks.load(is, clearPassword.toCharArray());
-      }
-      var entries = new ArrayList<KeystoreEntry>();
-      var aliases = Collections.list(ks.aliases());
-      for (var alias : aliases) {
-        var cert = ks.getCertificate(alias);
-        if (cert instanceof X509Certificate x509) {
-          var subjectDN = x509.getSubjectX500Principal().getName();
-          var issuer = x509.getIssuerX500Principal().getName();
-          var notBefore =
-              x509.getNotBefore()
-                  .toInstant()
-                  .atZone(ZoneId.systemDefault())
-                  .toLocalDateTime()
-                  .format(DATE_FMT);
-          var notAfter =
-              x509.getNotAfter()
-                  .toInstant()
-                  .atZone(ZoneId.systemDefault())
-                  .toLocalDateTime()
-                  .format(DATE_FMT);
-          entries.add(new KeystoreEntry(alias, subjectDN, issuer, notBefore, notAfter));
-        }
-      }
-      entries.sort(java.util.Comparator.comparing(KeystoreEntry::alias));
-      return KeystoreInspectResult.success(jksPath, List.copyOf(entries));
+      var entries = inspectKeystore(keystoreBytes, clearPassword);
+      return KeystoreInspectResult.success(jksPath, entries);
     } catch (Exception ex) {
       return KeystoreInspectResult.partial(jksPath, ex.getMessage());
     }
+  }
+
+  private byte[] decodeBase64EnvVar(Map<String, String> vars, String varName, String appName) {
+    var encoded = requireEnvVar(vars, varName, appName);
+    try {
+      return Base64.getDecoder().decode(encoded.strip());
+    } catch (IllegalArgumentException ex) {
+      throw new IllegalStateException(
+          "Value of '" + varName + "' is not valid Base64: " + ex.getMessage(), ex);
+    }
+  }
+
+  private String decodeBase64EnvVarAsString(
+      Map<String, String> vars, String varName, String appName) {
+    var encoded = requireEnvVar(vars, varName, appName);
+    try {
+      return new String(Base64.getDecoder().decode(encoded.strip()));
+    } catch (IllegalArgumentException ex) {
+      throw new IllegalStateException(
+          "Value of '" + varName + "' is not valid Base64: " + ex.getMessage(), ex);
+    }
+  }
+
+  private static String requireEnvVar(Map<String, String> vars, String varName, String appName) {
+    var value = vars.get(varName);
+    if (value == null) {
+      throw new IllegalStateException(
+          "Environment variable '" + varName + "' not found for app '" + appName + "'");
+    }
+    return value;
+  }
+
+  private List<KeystoreEntry> inspectKeystore(byte[] keystoreBytes, String clearPassword)
+      throws Exception {
+    var ks = KeyStore.getInstance("JKS");
+    try (var is = new java.io.ByteArrayInputStream(keystoreBytes)) {
+      ks.load(is, clearPassword.toCharArray());
+    }
+    var entries = new ArrayList<KeystoreEntry>();
+    for (var alias : Collections.list(ks.aliases())) {
+      var cert = ks.getCertificate(alias);
+      if (cert instanceof X509Certificate x509) {
+        entries.add(toKeystoreEntry(alias, x509));
+      }
+    }
+    entries.sort(java.util.Comparator.comparing(KeystoreEntry::alias));
+    return List.copyOf(entries);
+  }
+
+  private KeystoreEntry toKeystoreEntry(String alias, X509Certificate cert) {
+    return new KeystoreEntry(
+        alias,
+        cert.getSubjectX500Principal().getName(),
+        cert.getIssuerX500Principal().getName(),
+        formatDate(cert.getNotBefore()),
+        formatDate(cert.getNotAfter()));
+  }
+
+  private String formatDate(Date date) {
+    return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime().format(DATE_FMT);
   }
 }

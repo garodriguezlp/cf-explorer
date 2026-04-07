@@ -2,6 +2,7 @@ package cf.explorer;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -64,10 +65,10 @@ final class CatalogJoiner {
    * org cannot be resolved are annotated with {@code "unknown"}.
    */
   List<App> join(List<Organization> orgs, List<Space> spaces, List<AppResource> rawApps) {
-    var orgNameByGuid = new java.util.HashMap<String, String>();
+    var orgNameByGuid = new HashMap<String, String>();
     for (var org : orgs) orgNameByGuid.put(org.guid(), org.name());
 
-    var spaceByGuid = new java.util.HashMap<String, Space>();
+    var spaceByGuid = new HashMap<String, Space>();
     for (var space : spaces) spaceByGuid.put(space.guid(), space);
 
     return rawApps.stream()
