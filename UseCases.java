@@ -37,7 +37,7 @@ final class UseCases {
         new FeignCfPlatformGateway(
             config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
     this.loadCatalog = new LoadCatalogUseCase(config);
-    this.exportEnv = new ExportEnvUseCase(sharedGateway, config.profileDir());
+    this.exportEnv = new ExportEnvUseCase(sharedGateway, config.profileDir(), config.copyToClipboard());
     this.openInBrowser = new OpenAppInBrowserUseCase(config);
     this.exportKeystore = new ExportKeystoreUseCase(sharedGateway, config);
   }
@@ -88,16 +88,18 @@ final class ExportEnvUseCase {
 
   private final FeignCfPlatformGateway gateway;
   private final Path profileDir;
+  private final boolean copyToClipboard;
 
-  ExportEnvUseCase(FeignCfPlatformGateway gateway, Path profileDir) {
+  ExportEnvUseCase(FeignCfPlatformGateway gateway, Path profileDir, boolean copyToClipboard) {
     this.gateway = gateway;
     this.profileDir = profileDir;
+    this.copyToClipboard = copyToClipboard;
   }
 
   EnvWriteResult execute(App app, EnvExportConfig config) throws IOException {
     var vars = gateway.fetchAppEnvVars(app.guid());
     var result = EnvFileWriter.write(app, vars, config, CachePaths.envsDir(profileDir));
-    var copied = ClipboardWriter.copy(result.path().toAbsolutePath().toString());
+    var copied = copyToClipboard && ClipboardWriter.copy(result.path().toAbsolutePath().toString());
     return new EnvWriteResult(result.path(), result.excludedKeys(), result.postProcessedKeys(), copied);
   }
 }
@@ -242,12 +244,14 @@ final class ExportKeystoreUseCase {
   private final String keystoreVar;
   private final String keystorePasswordVar;
   private final Path jksDir;
+  private final boolean copyToClipboard;
 
   ExportKeystoreUseCase(FeignCfPlatformGateway gateway, EnvConfig config) {
     this.gateway = gateway;
     this.keystoreVar = config.keystoreVar();
     this.keystorePasswordVar = config.keystorePasswordVar();
     this.jksDir = CachePaths.jksDir(config.profileDir());
+    this.copyToClipboard = config.copyToClipboard();
   }
 
   KeystoreInspectResult execute(App app) throws Exception {
@@ -255,7 +259,7 @@ final class ExportKeystoreUseCase {
     var keystoreBytes = decodeBase64EnvVar(vars, keystoreVar, app.name());
     var clearPassword = decodeBase64EnvVarAsString(vars, keystorePasswordVar, app.name());
     var jksPath = KeystoreFileWriter.write(app, keystoreBytes, clearPassword, jksDir);
-    var copied = ClipboardWriter.copy(jksPath.toAbsolutePath().toString());
+    var copied = copyToClipboard && ClipboardWriter.copy(jksPath.toAbsolutePath().toString());
     try {
       var entries = inspectKeystore(keystoreBytes, clearPassword);
       return KeystoreInspectResult.success(jksPath, entries, copied);

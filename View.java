@@ -298,6 +298,9 @@ public final class View {
               text("  ✓  ").green().bold(),
               text("source ").dim(),
               text(s.filePath()).bold().cyan()));
+      if (s.clipboardCopied()) {
+        items.add(clipboardHint());
+      }
       if (!excluded.isEmpty() || !postProcessed.isEmpty()) {
         items.add(text(""));
       }
@@ -316,6 +319,10 @@ public final class View {
           .fill(1)
           .focusable()
           .onKeyEvent(keyHandler::handle);
+    }
+
+    private static Element clipboardHint() {
+      return row(text("     \uD83D\uDCCB  ").dim(), text("path copied to clipboard").dim());
     }
   }
 
@@ -391,6 +398,9 @@ public final class View {
               text("  \u2713  ").green().bold(),
               text("saved to ").dim(),
               text(s.result().jksPath().toString()).bold().cyan()));
+      if (s.clipboardCopied()) {
+        items.add(clipboardHint());
+      }
       items.add(text(""));
 
       if (!s.result().inspected()) {
@@ -434,6 +444,10 @@ public final class View {
           .fill(1)
           .focusable()
           .onKeyEvent(keyHandler::handle);
+    }
+
+    private static Element clipboardHint() {
+      return row(text("     \uD83D\uDCCB  ").dim(), text("path copied to clipboard").dim());
     }
   }
 

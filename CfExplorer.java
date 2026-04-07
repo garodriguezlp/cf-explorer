@@ -107,6 +107,15 @@ public class CfExplorer implements Callable<Integer> {
       defaultValue = "${KEYSTORE_PASSWORD_VAR:-KEYSTORE_PASSWORD}")
   private String keystorePasswordVar;
 
+  @Option(
+      names = "--copy-to-clipboard",
+      negatable = true,
+      description =
+          "Copy the exported file path to the system clipboard after a successful export."
+              + " Use --no-copy-to-clipboard to disable. Default: true",
+      defaultValue = "true")
+  private boolean copyToClipboard;
+
   public static void main(String[] args) {
     int exitCode = new CommandLine(new CfExplorer()).execute(args);
     System.exit(exitCode);
@@ -141,6 +150,7 @@ public class CfExplorer implements Callable<Integer> {
         Map.copyOf(postProcessors),
         keystoreVar,
         keystorePasswordVar,
+        copyToClipboard,
         profileDir());
   }
 
@@ -179,6 +189,7 @@ record EnvConfig(
     Map<String, Processor> postProcessors,
     String keystoreVar,
     String keystorePasswordVar,
+    boolean copyToClipboard,
     Path profileDir) {}
 
 final class Launcher extends ToolkitApp {

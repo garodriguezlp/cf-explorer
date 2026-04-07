@@ -162,8 +162,10 @@ sealed interface AppState
 
     /** Transitions to {@link ExportDone} after a successful export. */
     AppState.ExportDone toDone(
-        String filePath, List<String> excludedKeys, List<String> postProcessedKeys) {
-      return new AppState.ExportDone(previous, appName, filePath, excludedKeys, postProcessedKeys);
+        String filePath, List<String> excludedKeys, List<String> postProcessedKeys,
+        boolean clipboardCopied) {
+      return new AppState.ExportDone(
+          previous, appName, filePath, excludedKeys, postProcessedKeys, clipboardCopied);
     }
 
     /** Transitions to {@link ExportFailed} when the export operation throws. */
@@ -181,7 +183,8 @@ sealed interface AppState
       String appName,
       String filePath,
       List<String> excludedKeys,
-      List<String> postProcessedKeys)
+      List<String> postProcessedKeys,
+      boolean clipboardCopied)
       implements AppState {
     HeaderCounts header() {
       return previous.header();
@@ -216,7 +219,7 @@ sealed interface AppState
     }
 
     AppState.KeystoreDone toDone(KeystoreInspectResult result) {
-      return new AppState.KeystoreDone(previous, appName, result);
+      return new AppState.KeystoreDone(previous, appName, result, result.clipboardCopied());
     }
 
     AppState.KeystoreFailed toFailed(String errorMessage) {
@@ -227,7 +230,8 @@ sealed interface AppState
   /**
    * The keystore inspection completed successfully. Carries the file path and certificate entries.
    */
-  record KeystoreDone(Browsing previous, String appName, KeystoreInspectResult result)
+  record KeystoreDone(
+      Browsing previous, String appName, KeystoreInspectResult result, boolean clipboardCopied)
       implements AppState {
     HeaderCounts header() {
       return previous.header();

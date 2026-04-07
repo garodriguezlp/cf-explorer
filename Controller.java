@@ -124,7 +124,9 @@ final class Controller {
 
   private void onExportDone(EnvWriteResult result) {
     if (state instanceof AppState.EnvExporting e)
-      state = e.toDone(result.path().toString(), result.excludedKeys(), result.postProcessedKeys());
+      state = e.toDone(
+          result.path().toString(), result.excludedKeys(), result.postProcessedKeys(),
+          result.clipboardCopied());
   }
 
   private void onExportFailed(Throwable ex) {
