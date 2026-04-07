@@ -159,7 +159,7 @@ public final class View {
               .scrollbar()
               .scrollbarThumbColor(Color.CYAN)
               .selected(s.selectedIndex());
-      for (var line : s.displayLines()) {
+      for (var line : displayLines(s)) {
         listWidget.add(MatchHighlight.build(line, tokens));
       }
       return panel(listWidget)
@@ -170,6 +170,23 @@ public final class View {
           .focusable()
           .onKeyEvent(keyHandler::handle)
           .fill(1);
+    }
+
+    private static List<String> displayLines(AppState.Browsing s) {
+      return s.filteredApps().stream().map(View.Browsing::formatAppLine).toList();
+    }
+
+    private static String formatAppLine(App app) {
+      return String.format(
+          "%-55s  %-8s  %-10s  %s",
+          truncate(app.name(), 55),
+          app.state(),
+          app.updatedAt() != null ? app.updatedAt().substring(0, 10) : "\u2014",
+          app.orgName() + " \u203a " + app.spaceName());
+    }
+
+    private static String truncate(String s, int max) {
+      return s.length() <= max ? s : s.substring(0, max - 1) + "\u2026";
     }
 
     private static Element details(AppState.Browsing s) {

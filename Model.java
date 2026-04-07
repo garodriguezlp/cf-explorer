@@ -125,23 +125,6 @@ sealed interface AppState
       return !filterQuery.isEmpty();
     }
 
-    /**
-     * Returns one pre-formatted display string per filtered app, suitable for rendering directly in
-     * a list widget (name, state, last-updated date, org › space).
-     */
-    List<String> displayLines() {
-      return filteredApps.stream()
-          .map(
-              app ->
-                  String.format(
-                      "%-55s  %-8s  %-10s  %s",
-                      truncate(app.name(), 55),
-                      app.state(),
-                      app.updatedAt() != null ? app.updatedAt().substring(0, 10) : "\u2014",
-                      app.orgName() + " \u203a " + app.spaceName()))
-          .toList();
-    }
-
     private Browsing withIndex(int i) {
       return new Browsing(header, allApps, filteredApps, i, filterQuery, filterTokens);
     }
@@ -155,10 +138,6 @@ sealed interface AppState
 
     private static int clamp(int i, int size) {
       return size == 0 ? 0 : Math.max(0, Math.min(i, size - 1));
-    }
-
-    private static String truncate(String s, int max) {
-      return s.length() <= max ? s : s.substring(0, max - 1) + "\u2026";
     }
 
     /** Transitions to {@link EnvExporting} while the env-var export runs for the given app. */
