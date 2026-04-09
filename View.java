@@ -158,7 +158,7 @@ final class View {
     }
 
     private static Element main(AppState.Browsing s, KeyHandler keyHandler) {
-      return column(appList(s, keyHandler), details(s));
+      return appList(s, keyHandler);
     }
 
     private static Element appList(AppState.Browsing s, KeyHandler keyHandler) {
@@ -190,43 +190,16 @@ final class View {
 
     private static String formatAppLine(App app) {
       return String.format(
-          "%-55s  %-8s  %-10s  %s",
-          truncate(app.name(), 55),
+          "%-45s  %-8s  c: %s > u: %s  %s",
+          truncate(app.name(), 45),
           app.state(),
-          app.updatedAt() != null ? app.updatedAt().substring(0, 10) : "\u2014",
+          dateOnly(app.createdAt()),
+          dateOnly(app.updatedAt()),
           app.orgName() + " \u203a " + app.spaceName());
     }
 
     private static String truncate(String s, int max) {
       return s.length() <= max ? s : s.substring(0, max - 1) + "\u2026";
-    }
-
-    private static Element details(AppState.Browsing s) {
-      var app = s.selectedApp();
-      if (app == null) {
-        return panel(text("  Select an app to see details").dim())
-            .rounded()
-            .borderColor(Color.DARK_GRAY)
-            .title("Details");
-      }
-      return panel(
-              column(
-                  row(
-                      text("  " + app.name()).bold().cyan(),
-                      text("  "),
-                      Shared.stateChip(app.state())),
-                  text("  " + app.guid()).dim(),
-                  text(""),
-                  row(
-                      Shared.labelValue("  created   ", text(dateOnly(app.createdAt()))),
-                      text("  \u2502  ").dim(),
-                      Shared.labelValue("updated   ", text(dateOnly(app.updatedAt())))),
-                  text(""),
-                  Shared.labelValue("  org     ", text(app.orgName())),
-                  Shared.labelValue("  space   ", text(app.spaceName()))))
-          .rounded()
-          .title("Details")
-          .borderColor(Color.CYAN);
     }
 
     private static Element filterBar(AppState.Browsing s) {
