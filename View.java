@@ -482,16 +482,6 @@ final class View {
           .borderColor(Color.CYAN);
     }
 
-    static Element stateChip(String state) {
-      return "STARTED".equals(state)
-          ? text("\u25cf STARTED").green().bold()
-          : text("\u25cf STOPPED").dim();
-    }
-
-    static Element labelValue(String label, Element content) {
-      return row(text(label).dim(), content);
-    }
-
     static Element quitHint() {
       return panel(text("  q quit  |  Ctrl+C quit").dim()).rounded().borderColor(Color.DARK_GRAY);
     }
