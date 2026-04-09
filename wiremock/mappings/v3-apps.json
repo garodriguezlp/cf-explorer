@@ -42,8 +42,8 @@
           "guid": "app-guid-0003",
           "name": "notification-service",
           "state": "STARTED",
-          "created_at": "2023-09-05T10:00:00Z",
-          "updated_at": "2024-02-15T09:30:00Z",
+          "created_at": "2026-04-01T10:00:00Z",
+          "updated_at": "2026-04-15T09:30:00Z",
           "relationships": {
             "space": { "data": { "guid": "space-guid-0002" } }
           }
@@ -52,8 +52,8 @@
           "guid": "app-guid-0004",
           "name": "auth-service-v2",
           "state": "STOPPED",
-          "created_at": "2023-04-11T08:30:00Z",
-          "updated_at": "2024-01-28T14:00:00Z",
+          "created_at": "2026-03-11T08:30:00Z",
+          "updated_at": "2026-04-04T14:00:00Z",
           "relationships": {
             "space": { "data": { "guid": "space-guid-0003" } }
           }
