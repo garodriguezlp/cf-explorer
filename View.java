@@ -190,7 +190,7 @@ final class View {
 
     private static String formatAppLine(App app) {
       return String.format(
-          "%-45s  %-8s  c: %s \u2502 u: %s  %s",
+          "%-45s  %-8s  c: %s \u203a u: %s  %s",
           truncate(app.name(), 45),
           app.state(),
           dateOnly(app.createdAt()),
