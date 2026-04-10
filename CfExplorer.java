@@ -11,7 +11,7 @@
 //DEPS io.github.openfeign:feign-core:13.11
 //DEPS io.github.openfeign:feign-form:13.11
 //DEPS io.github.openfeign:feign-jackson:13.11
-//DEPS com.fasterxml.jackson.core:jackson-databind:2.18.2
+//DEPS tools.jackson.core:jackson-databind:3.1.1
 
 //SOURCES Model.java
 //SOURCES View.java
