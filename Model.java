@@ -294,6 +294,11 @@ sealed interface AppState
     AppState.KeystoreExporting toKeystoreExporting(String appName) {
       return new AppState.KeystoreExporting(this, appName);
     }
+
+    /** Transitions back to {@link CatalogLoading} for an on-demand fresh reload. */
+    AppState.CatalogLoading toCatalogLoading() {
+      return new AppState.CatalogLoading(false, false, false, header.orgs(), header.spaces(), 0);
+    }
   }
 
   /**
