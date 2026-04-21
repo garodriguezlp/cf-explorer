@@ -612,7 +612,8 @@ final class CachedCatalogProvider implements CatalogProvider {
     return fetchAndCacheLive(listener);
   }
 
-  CatalogSnapshot loadCatalogFresh(CatalogLoadListener listener) {
+  @Override
+  public CatalogSnapshot loadCatalogFresh(CatalogLoadListener listener) {
     clearCacheSilently();
     return fetchAndCacheLive(listener);
   }
