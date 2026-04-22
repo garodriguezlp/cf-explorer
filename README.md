@@ -4,7 +4,7 @@ An interactive terminal browser for Cloud Foundry. Navigate your orgs, spaces, a
 
 ## Demo
 
-![cf-explorer demo](docs/cf-explorer.gif)
+![cf-explorer demo](docs/cf-explorer-demo.png)
 
 ## Usage
 
