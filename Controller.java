@@ -568,6 +568,15 @@ interface CatalogLoadListener {
 /** Loads the CF application catalog, either from the live platform or a local cache. */
 interface CatalogProvider {
   CatalogSnapshot loadCatalog(CatalogLoadListener listener);
+
+  /**
+   * Optional fresh-load variant that forces fetching from the live platform. Default
+   * implementation delegates to {@link #loadCatalog(CatalogLoadListener)} so
+   * providers that do not support a fresh fetch can reuse the regular load.
+   */
+  default CatalogSnapshot loadCatalogFresh(CatalogLoadListener listener) {
+    return loadCatalog(listener);
+  }
 }
 
 /** Raw snapshot of orgs, spaces, and apps as returned by the CF API or the local cache. */
