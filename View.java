@@ -226,7 +226,8 @@ final class View {
     private static Element footer() {
       var hint =
           "\u2191\u2193 navigate  |  Enter export .env  |  Ctrl+O open in browser  |  Ctrl+K"
-              + " inspect keystore  |  type to filter  |  Esc clear  |  Ctrl+C quit";
+              + " inspect keystore  |  Ctrl+F fresh reload  |  type to filter  |  Esc clear"
+              + "  |  Ctrl+C quit";
       return panel(text(hint).dim()).rounded().borderColor(Color.DARK_GRAY);
     }
 
@@ -586,6 +587,7 @@ final class KeyHandler {
     private static final String APPEND_FILTER_CHARACTER = "appendFilterCharacter";
     private static final String OPEN_IN_BROWSER = "openInBrowser";
     private static final String EXPORT_KEYSTORE = "exportKeystore";
+    private static final String FRESH_RELOAD = "freshReload";
 
     private static final Bindings BINDINGS =
         BindingSets.defaults().toBuilder()
@@ -594,6 +596,7 @@ final class KeyHandler {
             .rebind(KeyTrigger.ctrl('h'), Actions.DELETE_BACKWARD)
             .bind(KeyTrigger.ctrl('o'), BrowsingHandlers.OPEN_IN_BROWSER)
             .bind(KeyTrigger.ctrl('k'), BrowsingHandlers.EXPORT_KEYSTORE)
+            .bind(KeyTrigger.ctrl('f'), BrowsingHandlers.FRESH_RELOAD)
             .build();
 
     private final Controller controller;
@@ -610,6 +613,7 @@ final class KeyHandler {
           .on(Actions.SELECT, this::handleSelectCurrentApp)
           .on(OPEN_IN_BROWSER, this::handleOpenCurrentAppInBrowser)
           .on(EXPORT_KEYSTORE, this::handleExportKeystore)
+          .on(FRESH_RELOAD, this::handleFreshReload)
           .on(Actions.DELETE_BACKWARD, this::handleBackspaceFilter)
           .on(Actions.CANCEL, this::handleClearFilter);
     }
@@ -639,6 +643,10 @@ final class KeyHandler {
     private void handleExportKeystore(Event event) {
       var app = selectedApp();
       if (app != null) controller.exportKeystore(app);
+    }
+
+    private void handleFreshReload(Event event) {
+      controller.freshReload();
     }
 
     private void handleBackspaceFilter(Event event) {

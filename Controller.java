@@ -115,6 +115,18 @@ final class Controller {
             });
   }
 
+  void freshReload() {
+    if (!(state instanceof AppState.Browsing b)) return;
+    state = AppState.CatalogLoading.initial();
+    CompletableFuture.supplyAsync(() -> loadCatalogUseCase.executeFresh(buildCatalogLoadListener()))
+        .thenAccept(apps -> dispatch.dispatch(() -> onCatalogLoaded(apps)))
+        .exceptionally(
+            ex -> {
+              dispatch.dispatch(() -> onCatalogLoadFailed(ex));
+              return null;
+            });
+  }
+
   void selectApp(App app) {
     transitionToExporting(app);
     CompletableFuture.supplyAsync(() -> doExport(app))
@@ -285,6 +297,11 @@ final class LoadCatalogUseCase {
 
   List<App> execute(CatalogLoadListener listener) {
     var snapshot = catalogProvider.loadCatalog(listener);
+    return joiner.join(snapshot.organizations(), snapshot.spaces(), snapshot.apps());
+  }
+
+  List<App> executeFresh(CatalogLoadListener listener) {
+    var snapshot = catalogProvider.loadCatalogFresh(listener);
     return joiner.join(snapshot.organizations(), snapshot.spaces(), snapshot.apps());
   }
 }
@@ -551,6 +568,15 @@ interface CatalogLoadListener {
 /** Loads the CF application catalog, either from the live platform or a local cache. */
 interface CatalogProvider {
   CatalogSnapshot loadCatalog(CatalogLoadListener listener);
+
+  /**
+   * Optional fresh-load variant that forces fetching from the live platform. Default
+   * implementation delegates to {@link #loadCatalog(CatalogLoadListener)} so
+   * providers that do not support a fresh fetch can reuse the regular load.
+   */
+  default CatalogSnapshot loadCatalogFresh(CatalogLoadListener listener) {
+    return loadCatalog(listener);
+  }
 }
 
 /** Raw snapshot of orgs, spaces, and apps as returned by the CF API or the local cache. */
@@ -592,6 +618,12 @@ final class CachedCatalogProvider implements CatalogProvider {
       listener.appsLoaded(cached.apps().size());
       return cached;
     }
+    return fetchAndCacheLive(listener);
+  }
+
+  @Override
+  public CatalogSnapshot loadCatalogFresh(CatalogLoadListener listener) {
+    clearCacheSilently();
     return fetchAndCacheLive(listener);
   }
 
