@@ -9,6 +9,9 @@
 //DEPS info.picocli:picocli:4.7.6
 
 //SOURCES ExplorerScreen.java
+//SOURCES model/WelcomeContent.java
+//SOURCES ui/WelcomeView.java
+//SOURCES ui/components/WelcomeBody.java
 
 //FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 

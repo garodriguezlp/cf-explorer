@@ -49,23 +49,22 @@ user-supplied file replaces the bundled defaults rather than merging with them.
 `mvn verify` runs unit tests and starts and exits the TUI through Maven, the
 executable jar, the direct JBang script and the local catalog. These automated
 launch checks use redirected streams; verify screen rendering in an interactive
-terminal too. The build also checks that JBang dependencies are declared only
-in the entry point and match the runtime dependencies in `pom.xml`.
+terminal too. The build also checks that JBang directives are declared in the
+entry point and its dependencies match the runtime dependencies in `pom.xml`.
 
 ## Source organization
 
 Maven discovers the production classes in the usual source tree. For JBang,
-`CfExplorer.java` lists `ExplorerScreen.java` using `//SOURCES`; that file
-lists the model and view, and the view lists its nested component. Each path
-is relative to the file containing the directive. When adding a source file,
-include it in a `//SOURCES` directive on a file already in this graph.
+`CfExplorer.java` lists every other source file in a separate `//SOURCES`
+directive, with paths relative to the entry point. Add a directive there when
+adding a production source file.
 
 ```text
 CfExplorer.java
   -> ExplorerScreen.java
-     -> model/WelcomeContent.java
-     -> ui/WelcomeView.java
-        -> components/WelcomeBody.java
+  -> model/WelcomeContent.java
+  -> ui/WelcomeView.java
+  -> ui/components/WelcomeBody.java
 ```
 
 Experiments with JBang 0.135.1 and fresh caches:
@@ -85,7 +84,7 @@ configuration is honored. We nevertheless keep dependencies in the entry
 point and `pom.xml`, so the alignment test checks all of them. Individual
 classes can use those dependencies without declaring them again.
 
-In the local HTTP test, JBang fetches the files listed by the graph, not an
+In the local HTTP test, JBang fetches the explicitly listed files, not an
 entire remote directory. Actual GitHub catalog behavior is still unverified.
 See JBang's
 [file organization documentation](https://www.jbang.dev/documentation/jbang/latest/organizing.html)

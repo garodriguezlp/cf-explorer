@@ -1,5 +1,3 @@
-//SOURCES model/WelcomeContent.java ui/WelcomeView.java
-
 package cf.explorer;
 
 import cf.explorer.model.WelcomeContent;

@@ -17,13 +17,38 @@ import org.w3c.dom.NodeList;
 
 class DependencyAlignmentTest {
   @Test
-  void jbangDependenciesAreDeclaredOnlyInTheEntryPoint() throws Exception {
+  void jbangDirectivesAreDeclaredOnlyInTheEntryPoint() throws Exception {
+    Pattern directives = Pattern.compile(
+        "(?m)^\\s*//(?:CDS|COMPILE_OPTIONS|DEPS|DESCRIPTION|DOCS|FILES|GAV|JAVAAGENT"
+            + "|JAVAC_OPTIONS|JAVA|JAVA_OPTIONS|MAIN|MANIFEST|MODULE|NATIVE_OPTIONS"
+            + "|NOINTEGRATIONS|PREVIEW|REPOS|RUNTIME_OPTIONS|SOURCES|GROOVY|KOTLIN)\\b");
     try (Stream<Path> paths = Files.walk(Path.of("src/main/java"))) {
       for (Path path : paths.filter(p -> p.toString().endsWith(".java"))
           .filter(p -> !p.equals(Path.of("src/main/java/cf/explorer/CfExplorer.java"))).toList()) {
-        assertTrue(!Pattern.compile("(?m)^\\s*//DEPS\\b").matcher(Files.readString(path)).find(),
-            "Declare JBang dependencies in CfExplorer.java, not " + path);
+        assertTrue(!directives.matcher(Files.readString(path)).find(),
+            "Declare JBang directives in CfExplorer.java, not " + path);
       }
+    }
+  }
+
+  @Test
+  void jbangListsEveryOtherSourceOnce() throws Exception {
+    Path sourceRoot = Path.of("src/main/java");
+    Path entryPoint = sourceRoot.resolve("cf/explorer/CfExplorer.java");
+    Set<Path> declared = new TreeSet<>();
+    for (String line : Files.readAllLines(entryPoint)) {
+      if (line.startsWith("//SOURCES ")) {
+        String path = line.substring("//SOURCES ".length()).trim();
+        assertTrue(!path.isEmpty() && !path.matches(".*\\s+.*"),
+            "Declare exactly one source per directive: " + line);
+        assertTrue(declared.add(entryPoint.getParent().resolve(path).normalize()),
+            "Duplicate source: " + path);
+      }
+    }
+    try (Stream<Path> paths = Files.walk(sourceRoot)) {
+      Set<Path> sources = new TreeSet<>(paths.filter(p -> p.toString().endsWith(".java"))
+          .filter(p -> !p.equals(entryPoint)).toList());
+      assertEquals(sources, declared);
     }
   }
 

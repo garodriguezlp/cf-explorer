@@ -1,5 +1,3 @@
-//SOURCES components/WelcomeBody.java
-
 package cf.explorer.ui;
 
 import static dev.tamboui.toolkit.Toolkit.panel;
