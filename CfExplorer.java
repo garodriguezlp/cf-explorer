@@ -5,8 +5,9 @@
 //COMPILE_OPTIONS -encoding UTF-8
 //RUNTIME_OPTIONS -Dfile.encoding=UTF-8
 
-//DEPS dev.tamboui:tamboui-toolkit:LATEST
-//DEPS dev.tamboui:tamboui-jline3-backend:LATEST
+//DEPS org.jline:jline:3.25.1
+//DEPS dev.tamboui:tamboui-toolkit:0.7.0
+//DEPS dev.tamboui:tamboui-jline3-backend:0.7.0
 //DEPS info.picocli:picocli:4.7.6
 //DEPS io.github.openfeign:feign-core:13.11
 //DEPS io.github.openfeign:feign-form:13.11

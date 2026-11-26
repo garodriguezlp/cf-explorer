@@ -593,7 +593,6 @@ final class KeyHandler {
         BindingSets.defaults().toBuilder()
             .bind(KeyTrigger.key(KeyCode.CHAR), BrowsingHandlers.APPEND_FILTER_CHARACTER)
             .rebind(KeyTrigger.key(KeyCode.ENTER), Actions.SELECT)
-            .rebind(KeyTrigger.ctrl('h'), Actions.DELETE_BACKWARD)
             .bind(KeyTrigger.ctrl('o'), BrowsingHandlers.OPEN_IN_BROWSER)
             .bind(KeyTrigger.ctrl('k'), BrowsingHandlers.EXPORT_KEYSTORE)
             .bind(KeyTrigger.ctrl('f'), BrowsingHandlers.FRESH_RELOAD)
