@@ -9,6 +9,7 @@ import cf.explorer.model.ShellState;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.example.ExampleFeatures;
+import cf.explorer.catalog.ApplicationCatalog;
 import dev.tamboui.buffer.Buffer;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
@@ -29,6 +30,90 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 class ShellViewTest {
+  @Test
+  void catalogRootFiltersAndRestoresTypedSelectionAcrossNavigation() {
+    var first = new ApplicationCatalog.App("one", "same", "STARTED", "s1", "production",
+        "o1", "team", "2024-01-01", "2024-02-01");
+    var second = new ApplicationCatalog.App("two", "same", "STOPPED", "s2", "staging",
+        "o1", "team", "2023-01-01", "2024-03-01");
+    ApplicationCatalogPage catalog = new ApplicationCatalogPage();
+    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
+        Runnable::run, Runnable::run);
+    state.setRootPage(catalog);
+    assertTrue(render(state).contains("Loading Cloud Foundry catalog"));
+    catalog.loaded(new ApplicationCatalog(1, 2, List.of(first, second)));
+    assertTrue(render(state).contains("Apps  2/2"));
+    assertTrue(render(state).contains("same  |  STARTED  |  team / production"));
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, () -> {});
+    assertEquals(second, state.selected(ApplicationCatalog.App.class));
+    for (char c : "staging".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    assertEquals(second, state.selected(ApplicationCatalog.App.class));
+    assertTrue(render(state).contains("Apps  1/2"));
+    Buffer filtered = renderBuffer(state, 100, 24);
+    boolean highlightedMatch = false;
+    for (int y = 0; y < filtered.height(); y++) {
+      for (int x = 0; x < filtered.width(); x++) {
+        if (filtered.get(x, y).symbol().equals("s")
+            && filtered.get(x, y).style().fg().filter(Color.LIGHT_YELLOW::equals).isPresent()) {
+          highlightedMatch = true;
+        }
+      }
+    }
+    assertTrue(highlightedMatch, "The selected row's filter match should be colored");
+    ShellView.handleKey(KeyEvent.ofChar('/'), state, () -> {});
+    assertTrue(render(state).contains(" Command "));
+    assertFalse(render(state).contains(" Filter "));
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertTrue(render(state).contains("staging|"));
+    state.openPage(() -> Toolkit.text("Detail"));
+    assertNull(state.selected(ApplicationCatalog.App.class));
+    state.back();
+    assertEquals(second, state.selected(ApplicationCatalog.App.class));
+    assertTrue(render(state).contains("staging|"));
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertTrue(render(state).contains("Apps  2/2"));
+    assertEquals(second, state.selected(ApplicationCatalog.App.class));
+    catalog.failed();
+    assertTrue(render(state).contains("Catalog loading failed."));
+  }
+
+  @Test
+  void catalogLoadingAppliesResultsOnlyOnRenderThreadAndDiscardsStaleResults() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
+        worker::add, dispatch::add);
+    state.setRootPage(page);
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    ApplicationCatalog data = new ApplicationCatalog(1, 1, List.of(app));
+    page.startLoading(() -> data, worker::add, dispatch::add, () -> !state.quitRequested());
+    worker.remove().run();
+    assertTrue(render(state).contains("Loading Cloud Foundry"));
+    dispatch.remove().run();
+    assertEquals(app, state.selected(ApplicationCatalog.App.class));
+
+    page.startLoading(() -> data, worker::add, dispatch::add, () -> !state.quitRequested());
+    worker.remove().run();
+    page.startLoading(() -> { throw new IllegalStateException("private content"); },
+        worker::add, dispatch::add, () -> !state.quitRequested());
+    dispatch.remove().run();
+    assertNull(state.currentSelection());
+    worker.remove().run();
+    dispatch.remove().run();
+    assertTrue(render(state).contains("Catalog loading failed."));
+    assertFalse(render(state).contains("private content"));
+
+    page.startLoading(() -> data, worker::add, dispatch::add, () -> !state.quitRequested());
+    worker.remove().run();
+    state.requestQuit();
+    dispatch.remove().run();
+    assertNull(state.currentSelection());
+  }
+
   @Test
   void rendersListSuggestionsErrorsAndDetail() {
     ShellState state = state(List.of("Atlas", "Alpine", "Delta"));

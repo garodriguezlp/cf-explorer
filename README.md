@@ -1,9 +1,9 @@
 # cf-explorer: next version
 
-This branch starts a new version of cf-explorer. It currently provides a
-connection-free shell with example items; Cloud Foundry browsing and the other
-original features are not implemented yet. The original application remains
-available on `main`.
+This branch starts a new version of cf-explorer. It loads and filters a live
+Cloud Foundry app catalog; cache, refresh, export, Apps Manager, keystore
+inspection, and profiles are not implemented yet. The original application
+remains available on `main`.
 
 ## Requirements
 
@@ -27,31 +27,37 @@ Run the app in a terminal. The executable jar includes its runtime dependencies.
 
 ## Shell
 
-Type to filter the example list (case-insensitive substring matching), and use
-Up/Down to select one item, indicated by the highlighted row and `>`.
-Left/Right, Home/End, Backspace, and Delete edit
-the current input. Type `/` to enter command mode without changing the filter;
+Type to filter apps by name, state, organization, space, or created/updated
+date. Matching is case-insensitive; whitespace-separated tokens must all match
+some field. Matches are highlighted in the results. Use Up/Down to select an
+app, indicated by the highlighted row and `>`. Left/Right, Home/End, Backspace,
+and Delete edit the filter. Type `/` to switch the same input to command mode
+without changing the filter;
 type a command name to narrow the available suggestions. Up/Down selects a
 suggestion, Tab completes it, and Enter executes an exact command or the
 selected suggestion. An unknown or unavailable command is reported in place.
 
-Use `/mark` to toggle an in-session example label on the selected item; marks
-are not selections and commands operate on the highlighted item only.
-Use `/inspect` to open its detail view, or `/resources` to browse its local
-example resources. In the resources view, Up/Down selects a resource and
-`/inspect` opens that resource's details. `/summary` asynchronously counts
-the visible items and their marks using a snapshot of the current list.
-In a view, Esc or `/back` returns to the previous view, preserving its selection
-and the list filter. Esc cancels command
-entry; in the list it clears the filter when not entering a command. `/quit`
-is available in both views.
-These example commands do not connect to Cloud Foundry.
+Esc cancels command entry or clears the filter. `/quit` exits. On a connection
+failure, check the settings and restart the app. Loading currently always
+fetches live data; there is no cache or refresh command yet.
 The layout becomes more compact in shorter terminals, and the selected list
 item and command suggestion scroll into view.
 
 The phase 1 placeholder `--message` and `--count` options are no longer used.
 
-## Configuration placeholder
+## Connection configuration
+
+| Option | Environment variable | Default |
+|---|---|---|
+| `--uaa-url` | `CF_UAA_URL` | `http://localhost:9090` |
+| `--cf-api-url` | `CF_API_URL` | `http://localhost:9090` |
+| `--cf-username` | `CF_USERNAME` | `admin` |
+| `--cf-password` | `CF_PASSWORD` | `admin` |
+
+Command-line options override environment variables. Picocli also supports
+Java system properties for these variables, which take precedence over the
+environment. Profile-specific variables and `--env` are planned for a later
+slice.
 
 The bundled `.cf-explorer.properties` supplies `cf.api.url` as the default for
 `--cf-api-url`, inspired by the original application. Picocli reads
@@ -61,8 +67,7 @@ file when present; set the Java system property
 overrides the property; when no explicit property value is provided, the
 `CF_API_URL` Java system property or environment variable is used, falling
 back to `http://localhost:9090`. The system property takes precedence over the
-environment variable. This is a placeholder: the shell does not connect to
-the URL or use it yet. The resource is included in both launch paths.
+environment variable. The resource is included in both launch paths.
 
 `mvn verify` runs unit tests and starts and exits the TUI through Maven, the
 executable jar, the direct JBang script and the local catalog. These automated
@@ -77,10 +82,12 @@ Maven discovers the production classes in the usual source tree. For JBang,
 directive, with paths relative to the entry point. Add a directive there when
 adding a production source file.
 
-The shell routes input and owns navigation; `ExampleFeatures` owns the example
-commands, mark state, and pages. Commands are registered at startup in
-`ExplorerScreen`. The shell state and pages are UI/application components, not
-domain models. To add a feature:
+The shell routes input and owns navigation. `ApplicationCatalog` holds catalog
+data and filtering, `CloudFoundryCatalogClient` handles CF I/O, and
+`ApplicationCatalogPage` presents the root workspace. `ExampleFeatures`
+remains as a shell example but is not registered in the live application.
+Commands are registered at startup in `ExplorerScreen`. The shell state and
+pages are UI/application components, not domain models. To add a feature:
 
 1. Define a `ShellCommand` with a unique lowercase name, description,
    availability predicate, and action; register it in `ExplorerScreen`.
@@ -88,8 +95,8 @@ domain models. To add a feature:
    suggestions and execution.
 2. For a view, implement `ShellPage` and open it with `openPage`. A page may
    handle its own keys and expose its selection through `selected()`;
-   `currentSelection()` reads the active view's selection (or `null` when it
-   has none), not the selection in a background view. Ctrl-C, Esc, and `/`
+   `selected(App.class)` obtains a typed selection from the active view (or
+   `null` when unavailable), not a selection in a background view. Ctrl-C, Esc, and `/`
    remain shell controls. Back restores the previous page or list context.
 3. For background work, capture the required immutable inputs on the render
    thread and use `openAsyncPage`. Work runs on the injected executor; the
@@ -101,13 +108,9 @@ domain models. To add a feature:
 4. Add focused tests and a `//SOURCES` directive in `CfExplorer.java` for every
    new production source file.
 
-The current list is still a fixed list of strings with example-specific
-filtering and presentation. Migrating the CF catalog will require a typed
-catalog model with stable identities, replaceable/paginated data and its own
-filtering; the command and page boundaries do not implement those features.
-Authentication, configuration, cache, network I/O, export and keystore logic
-remain separate migration work. Keep those domain and I/O concerns out of the
-shell and execute blocking work off the render thread.
+Cache, profiles, refresh, export and keystore logic remain migration work.
+Keep domain and I/O concerns out of the shell and execute blocking work off the
+render thread.
 
 Experiments with JBang 0.135.1 and fresh caches:
 
@@ -141,8 +144,8 @@ phases:
 ./jbang mock-server
 ```
 
-The mock server listens on port 9090 by default. This minimal app does not
-connect to it yet.
+The mock server listens on port 9090 by default; the default connection
+settings use it.
 
 ## Remote catalog
 

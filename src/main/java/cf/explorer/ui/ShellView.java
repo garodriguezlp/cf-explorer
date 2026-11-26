@@ -33,8 +33,9 @@ public final class ShellView {
   private static Element layout(ShellState state, int height) {
     boolean compact = height < 16;
     List<Element> layout = new ArrayList<>();
-    layout.add(text(" CF EXPLORER  /  EXAMPLE WORKSPACE").fg(Color.LIGHT_CYAN).bold());
-    if (state.page() == null) {
+    layout.add(text(state.rootPage() == null ? " CF EXPLORER  /  EXAMPLE WORKSPACE"
+        : " CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
+    if (state.page() == null && state.rootPage() == null) {
       List<String> items = state.visibleItems();
       if (items.isEmpty()) {
         layout.add(panel(text(state.filter().isEmpty() ? " No items." : " No matching items.").dim())
@@ -47,7 +48,7 @@ public final class ShellView {
             .selected(items.indexOf(state.selected())).autoScroll().focusable(false).fill());
       }
     } else {
-      layout.add(state.page().render());
+      layout.add((state.page() != null ? state.page() : state.rootPage()).render());
     }
 
     if (state.command() != null) {
@@ -71,11 +72,17 @@ public final class ShellView {
       }
     }
 
+    String rootInput = state.page() == null && state.rootPage() != null
+        ? state.rootPage().inputValue() : null;
     String input = state.command() != null
         ? "/" + editing(state.command(), state.cursor())
-        : state.page() == null ? editing(state.filter(), state.cursor()) : "Type / for commands";
+        : rootInput != null ? editing(rootInput, state.rootPage().inputCursor())
+            : state.page() == null && state.rootPage() == null
+                ? editing(state.filter(), state.cursor()) : "Type / for commands";
     layout.add(panel(text(" " + input).fg(Color.BRIGHT_WHITE))
-        .title(state.command() != null ? " Command " : state.page() == null ? " Filter " : " Input ")
+        .title(state.command() != null ? " Command "
+            : rootInput != null || state.page() == null && state.rootPage() == null
+                ? " Filter " : " Input ")
         .rounded().borderColor(Color.LIGHT_CYAN).length(3));
     if (!state.status().isEmpty()) {
       layout.add(text(" " + state.status()).fg(Color.LIGHT_YELLOW));
@@ -117,11 +124,16 @@ public final class ShellView {
     if (event.isCtrlC()) {
       state.requestQuit();
       quit.run();
+    } else if (event.isKey(KeyCode.ESCAPE) && state.command() == null && state.page() == null
+        && state.rootPage() != null
+        && state.rootPage().handleKey(event) == EventResult.HANDLED) {
+      return EventResult.HANDLED;
     } else if (event.isKey(KeyCode.ESCAPE)) {
       state.cancel();
-    } else if (state.command() == null && state.page() != null
+    } else if (state.command() == null && (state.page() != null || state.rootPage() != null)
         && !(event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/')
-        && state.page().handleKey(event) == EventResult.HANDLED) {
+        && (state.page() != null ? state.page() : state.rootPage()).handleKey(event)
+            == EventResult.HANDLED) {
       return EventResult.HANDLED;
     } else if (event.isKey(KeyCode.UP)) {
       state.moveSelection(-1);

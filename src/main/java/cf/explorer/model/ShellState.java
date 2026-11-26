@@ -30,6 +30,7 @@ public final class ShellState {
   private String filter = "";
   private String selected;
   private ShellPage page;
+  private ShellPage rootPage;
   private ShellPage loadingPage;
   private String command;
   private int cursor;
@@ -59,7 +60,15 @@ public final class ShellState {
   public String filter() { return filter; }
   public String selected() { return selected; }
   public ShellPage page() { return page; }
-  public String currentSelection() { return page == null ? selected : page.selected(); }
+  public ShellPage rootPage() { return rootPage; }
+  public void setRootPage(ShellPage rootPage) { this.rootPage = Objects.requireNonNull(rootPage); }
+  public Object currentSelection() {
+    return page != null ? page.selected() : rootPage != null ? rootPage.selected() : selected;
+  }
+  public <T> T selected(Class<T> type) {
+    Object selection = currentSelection();
+    return type.isInstance(selection) ? type.cast(selection) : null;
+  }
   public String command() { return command; }
   public int cursor() { return cursor; }
   public int suggestionIndex() {

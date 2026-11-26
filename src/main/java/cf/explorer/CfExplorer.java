@@ -7,14 +7,18 @@
 //DEPS dev.tamboui:tamboui-toolkit:0.7.0
 //DEPS dev.tamboui:tamboui-jline3-backend:0.7.0
 //DEPS info.picocli:picocli:4.7.6
+//DEPS com.fasterxml.jackson.core:jackson-databind:2.19.1
 
 //SOURCES ExplorerScreen.java
+//SOURCES catalog/ApplicationCatalog.java
+//SOURCES catalog/CloudFoundryCatalogClient.java
 //SOURCES example/ExampleFeatures.java
 //SOURCES model/ShellCommand.java
 //SOURCES model/ShellCommands.java
 //SOURCES model/ShellPage.java
 //SOURCES model/ShellState.java
 //SOURCES ui/ShellView.java
+//SOURCES ui/ApplicationCatalogPage.java
 
 //FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 
@@ -32,8 +36,20 @@ import picocli.CommandLine.PropertiesDefaultProvider;
 public class CfExplorer implements Callable<Integer> {
   @Option(names = "--cf-api-url", descriptionKey = "cf.api.url",
       defaultValue = "${CF_API_URL:-http://localhost:9090}",
-      description = "Cloud Foundry API URL. Env: CF_API_URL (placeholder; not used yet).")
+      description = "Cloud Foundry API URL. Env: CF_API_URL.")
   String cfApiUrl;
+
+  @Option(names = "--uaa-url", defaultValue = "${CF_UAA_URL:-http://localhost:9090}",
+      description = "UAA URL. Env: CF_UAA_URL.")
+  String uaaUrl;
+
+  @Option(names = "--cf-username", defaultValue = "${CF_USERNAME:-admin}",
+      description = "Cloud Foundry username. Env: CF_USERNAME.")
+  String username;
+
+  @Option(names = "--cf-password", defaultValue = "${CF_PASSWORD:-admin}",
+      description = "Cloud Foundry password. Env: CF_PASSWORD.")
+  String password;
 
   public static void main(String[] args) {
     System.exit(new CommandLine(new CfExplorer()).execute(args));
@@ -46,6 +62,6 @@ public class CfExplorer implements Callable<Integer> {
   }
 
   void showScreen() throws Exception {
-    new ExplorerScreen().run();
+    new ExplorerScreen(uaaUrl, cfApiUrl, username, password).run();
   }
 }

@@ -108,6 +108,9 @@ enough for this phase.
 
 **Goal:** Restore useful Cloud Foundry workflows incrementally.
 
+See [PHASE4-MIGRATION.md](./PHASE4-MIGRATION.md) for the feature-by-feature
+implementation sequence and completion checks.
+
 **Requirements**
 
 - Catalog: authentication, paginated org/space/app loading, filtering, cache,

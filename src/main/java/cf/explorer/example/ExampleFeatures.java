@@ -46,7 +46,7 @@ public final class ExampleFeatures {
 
   private void inspect(ShellState state) {
     if (state.page() instanceof ResourcesPage resources) {
-      state.openPage(new ResourceDetailPage(resources.parent, state.currentSelection()));
+      state.openPage(new ResourceDetailPage(resources.parent, state.selected(String.class)));
     } else {
       state.openPage(new DetailPage(state.selected(), marked.contains(state.selected())));
     }

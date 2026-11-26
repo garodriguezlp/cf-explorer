@@ -8,8 +8,16 @@ import dev.tamboui.tui.event.KeyEvent;
 public interface ShellPage {
   Element render();
 
-  default String selected() {
+  default Object selected() {
     return null;
+  }
+
+  default String inputValue() {
+    return null;
+  }
+
+  default int inputCursor() {
+    return 0;
   }
 
   default EventResult handleKey(KeyEvent event) {

@@ -67,12 +67,15 @@ class LaunchIT {
           "/jbang-catalog.json",
           "/src/main/java/cf/explorer/CfExplorer.java",
           "/src/main/java/cf/explorer/ExplorerScreen.java",
+          "/src/main/java/cf/explorer/catalog/ApplicationCatalog.java",
+          "/src/main/java/cf/explorer/catalog/CloudFoundryCatalogClient.java",
           "/src/main/java/cf/explorer/example/ExampleFeatures.java",
           "/src/main/java/cf/explorer/model/ShellCommand.java",
           "/src/main/java/cf/explorer/model/ShellCommands.java",
           "/src/main/java/cf/explorer/model/ShellPage.java",
           "/src/main/java/cf/explorer/model/ShellState.java",
           "/src/main/java/cf/explorer/ui/ShellView.java",
+          "/src/main/java/cf/explorer/ui/ApplicationCatalogPage.java",
           "/src/main/resources/.cf-explorer.properties")), requested.toString());
     } finally {
       server.stop(0);
