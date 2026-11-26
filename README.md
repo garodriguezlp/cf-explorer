@@ -51,7 +51,10 @@ The bundled `.cf-explorer.properties` supplies `cf.api.url` as the default for
 `.cf-explorer.properties` in the user home directory instead of the bundled
 file when present; set the Java system property
 `picocli.defaults.cf-explorer.path` to use another file. The command-line option
-overrides the property. This is a placeholder: the shell does not connect to
+overrides the property; when no explicit property value is provided, the
+`CF_API_URL` Java system property or environment variable is used, falling
+back to `http://localhost:9090`. The system property takes precedence over the
+environment variable. This is a placeholder: the shell does not connect to
 the URL or use it yet. The resource is included in both launch paths.
 
 `mvn verify` runs unit tests and starts and exits the TUI through Maven, the

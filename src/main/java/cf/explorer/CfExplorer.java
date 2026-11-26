@@ -27,7 +27,8 @@ import picocli.CommandLine.PropertiesDefaultProvider;
     description = "The next version of cf-explorer.")
 public class CfExplorer implements Callable<Integer> {
   @Option(names = "--cf-api-url", descriptionKey = "cf.api.url",
-      description = "Cloud Foundry API URL (placeholder; not used yet).")
+      defaultValue = "${CF_API_URL:-http://localhost:9090}",
+      description = "Cloud Foundry API URL. Env: CF_API_URL (placeholder; not used yet).")
   String cfApiUrl;
 
   public static void main(String[] args) {
