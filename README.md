@@ -49,19 +49,45 @@ user-supplied file replaces the bundled defaults rather than merging with them.
 `mvn verify` runs unit tests and starts and exits the TUI through Maven, the
 executable jar, the direct JBang script and the local catalog. These automated
 launch checks use redirected streams; verify screen rendering in an interactive
-terminal too. The build also checks that the runtime dependencies declared in
-the JBang entry point match those in `pom.xml`.
+terminal too. The build also checks that JBang dependencies are declared only
+in the entry point and match the runtime dependencies in `pom.xml`.
 
 ## Source organization
 
-The entry point starts `ExplorerScreen`, which renders `ui/WelcomeView`.
-Maven discovers both classes in the usual source tree. JBang's entry point
-lists them with `//SOURCES`, using paths relative to that entry point. Add new
-production source files to this directive so JBang can compile them too.
+Maven discovers the production classes in the usual source tree. For JBang,
+`CfExplorer.java` lists `ExplorerScreen.java` using `//SOURCES`; that file
+lists the model and view, and the view lists its nested component. Each path
+is relative to the file containing the directive. When adding a source file,
+include it in a `//SOURCES` directive on a file already in this graph.
 
-With the included JBang version, `//SOURCES *.java **/*.java` worked locally,
-but did not fetch the additional sources when the entry point was served over
-HTTP. Explicit paths work in both cases. See JBang's
+```text
+CfExplorer.java
+  -> ExplorerScreen.java
+     -> model/WelcomeContent.java
+     -> ui/WelcomeView.java
+        -> components/WelcomeBody.java
+```
+
+Experiments with JBang 0.135.1 and fresh caches:
+
+| Approach | Local files | HTTP |
+|---|---|---|
+| Implicit discovery, as in the documentation's simple example | Worked when run from the source directory; failed from another directory | Failed |
+| Explicit paths in the entry point or nested `//SOURCES` | Worked | Worked, including nested packages |
+| `//SOURCES *.java **/*.java` or `//SOURCES **` | Worked for the test source tree | Did not fetch the sources |
+| Directory paths in `//SOURCES` | Worked for the tested local directories | Could not download a directory from the test server |
+
+These are results from small examples, not guarantees for every project or
+server. In a separate experiment, a `//DEPS` directive in an included source
+was resolved locally and over HTTP; the same example failed without it. This
+differs from the documentation's statement that only the main file's
+configuration is honored. We nevertheless keep dependencies in the entry
+point and `pom.xml`, so the alignment test checks all of them. Individual
+classes can use those dependencies without declaring them again.
+
+In the local HTTP test, JBang fetches the files listed by the graph, not an
+entire remote directory. Actual GitHub catalog behavior is still unverified.
+See JBang's
 [file organization documentation](https://www.jbang.dev/documentation/jbang/latest/organizing.html)
 for details.
 

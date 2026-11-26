@@ -8,7 +8,8 @@
 //DEPS dev.tamboui:tamboui-jline3-backend:0.7.0
 //DEPS info.picocli:picocli:4.7.6
 
-//SOURCES ExplorerScreen.java ui/WelcomeView.java
+//SOURCES ExplorerScreen.java
+
 //FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 
 package cf.explorer;

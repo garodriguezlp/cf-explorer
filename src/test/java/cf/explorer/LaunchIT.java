@@ -68,7 +68,9 @@ class LaunchIT {
           "/jbang-catalog.json",
           "/src/main/java/cf/explorer/CfExplorer.java",
           "/src/main/java/cf/explorer/ExplorerScreen.java",
+          "/src/main/java/cf/explorer/model/WelcomeContent.java",
           "/src/main/java/cf/explorer/ui/WelcomeView.java",
+          "/src/main/java/cf/explorer/ui/components/WelcomeBody.java",
           "/src/main/resources/.cf-explorer.properties")), requested.toString());
     } finally {
       server.stop(0);

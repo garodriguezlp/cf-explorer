@@ -23,11 +23,11 @@ point referenced a sibling class and classes in nested child packages.
 | `//SOURCES **/*.java` alone | Did not include the sibling source in this test |
 | Local catalog alias | Passed with the combined wildcard entry point |
 
-The current multi-class application confirms that these globs work locally but
-do not fetch sibling sources over local HTTP with JBang 0.135.1. It therefore
-uses explicit `//SOURCES` paths, tested through a local HTTP catalog without a
-checkout or compiled classes. Remote GitHub catalog behavior remains unverified
-and must be tested after publishing.
+The current application uses a nested graph of explicit `//SOURCES` paths,
+tested through a local HTTP catalog without a checkout or compiled classes.
+Experiments confirmed that local globs do not fetch sibling sources over HTTP
+with JBang 0.135.1; see the README for the other tested alternatives. Remote
+GitHub catalog behavior remains unverified and must be tested after publishing.
 
 ## Phase 1: Maven project with a JBang skin
 

@@ -1,20 +1,21 @@
+//SOURCES model/WelcomeContent.java ui/WelcomeView.java
+
 package cf.explorer;
 
+import cf.explorer.model.WelcomeContent;
 import cf.explorer.ui.WelcomeView;
 import dev.tamboui.toolkit.app.ToolkitApp;
 import dev.tamboui.toolkit.element.Element;
 
 final class ExplorerScreen extends ToolkitApp {
-  private final String message;
-  private final int count;
+  private final WelcomeContent content;
 
   ExplorerScreen(String message, int count) {
-    this.message = message;
-    this.count = count;
+    this.content = new WelcomeContent(message, count);
   }
 
   @Override
   protected Element render() {
-    return WelcomeView.render(message, count, this::quit);
+    return WelcomeView.render(content, this::quit);
   }
 }
