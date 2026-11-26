@@ -9,9 +9,8 @@
 //DEPS info.picocli:picocli:4.7.6
 
 //SOURCES ExplorerScreen.java
-//SOURCES model/WelcomeContent.java
-//SOURCES ui/WelcomeView.java
-//SOURCES ui/components/WelcomeBody.java
+//SOURCES model/ShellState.java
+//SOURCES ui/ShellView.java
 
 //FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 
@@ -27,13 +26,9 @@ import picocli.CommandLine.PropertiesDefaultProvider;
     defaultValueProvider = PropertiesDefaultProvider.class,
     description = "The next version of cf-explorer.")
 public class CfExplorer implements Callable<Integer> {
-  @Option(names = "--message", required = true, descriptionKey = "the.message",
-      description = "Message to display.")
-  String message;
-
-  @Option(names = "--count", defaultValue = "${CF_EXPLORER_COUNT:-1}",
-      description = "Count to display.")
-  int count;
+  @Option(names = "--cf-api-url", descriptionKey = "cf.api.url",
+      description = "Cloud Foundry API URL (placeholder; not used yet).")
+  String cfApiUrl;
 
   public static void main(String[] args) {
     System.exit(new CommandLine(new CfExplorer()).execute(args));
@@ -41,11 +36,11 @@ public class CfExplorer implements Callable<Integer> {
 
   @Override
   public Integer call() throws Exception {
-    showScreen(message, count);
+    showScreen();
     return 0;
   }
 
-  void showScreen(String message, int count) throws Exception {
-    new ExplorerScreen(message, count).run();
+  void showScreen() throws Exception {
+    new ExplorerScreen().run();
   }
 }

@@ -36,11 +36,10 @@ class LaunchIT {
     }
     Files.copy(root.resolve("jbang-catalog.json"), sourceOnly.resolve("jbang-catalog.json"));
 
-    run(root, List.of("java", "-jar", "target/cf-explorer.jar", "--message", "Launch test"));
-    run(root, command("mvn", "-q", "compile", "exec:java", "-Dexec.args=--message=LaunchTest"));
-    run(sourceOnly, command("jbang", "--quiet", "src/main/java/cf/explorer/CfExplorer.java",
-        "--message", "Launch test"));
-    run(sourceOnly, command("jbang", "--quiet", "cf-explorer", "--message", "Launch test"));
+    run(root, List.of("java", "-jar", "target/cf-explorer.jar"));
+    run(root, command("mvn", "-q", "compile", "exec:java"));
+    run(sourceOnly, command("jbang", "--quiet", "src/main/java/cf/explorer/CfExplorer.java"));
+    run(sourceOnly, command("jbang", "--quiet", "cf-explorer"));
 
     Set<String> requested = ConcurrentHashMap.newKeySet();
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -63,14 +62,13 @@ class LaunchIT {
       Path empty = Files.createDirectory(tempDir.resolve("empty"));
       String catalog = "cf-explorer@http://127.0.0.1:" + server.getAddress().getPort()
           + "/jbang-catalog.json";
-      run(empty, command("jbang", "--quiet", catalog, "--message", "Launch test"));
+      run(empty, command("jbang", "--quiet", catalog));
       assertTrue(requested.containsAll(Set.of(
           "/jbang-catalog.json",
           "/src/main/java/cf/explorer/CfExplorer.java",
           "/src/main/java/cf/explorer/ExplorerScreen.java",
-          "/src/main/java/cf/explorer/model/WelcomeContent.java",
-          "/src/main/java/cf/explorer/ui/WelcomeView.java",
-          "/src/main/java/cf/explorer/ui/components/WelcomeBody.java",
+          "/src/main/java/cf/explorer/model/ShellState.java",
+          "/src/main/java/cf/explorer/ui/ShellView.java",
           "/src/main/resources/.cf-explorer.properties")), requested.toString());
     } finally {
       server.stop(0);
@@ -97,7 +95,6 @@ class LaunchIT {
         .redirectOutput(outputFile.toFile()).directory(directory.toFile());
     builder.environment().put("JBANG_CACHE_DIR", Files.createTempDirectory(tempDir, "cache-").toString());
     builder.environment().put("TERM", "xterm-256color");
-    builder.environment().remove("CF_EXPLORER_COUNT");
     Process process = builder.start();
     try {
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120);
@@ -110,7 +107,7 @@ class LaunchIT {
         Thread.sleep(100);
       }
       assertTrue(output.contains("\u001b[?25l"), command + " did not start the TUI:\n" + output);
-      process.getOutputStream().write('q');
+      process.getOutputStream().write("/quit\n".getBytes(StandardCharsets.UTF_8));
       process.getOutputStream().flush();
       assertTrue(process.waitFor(15, TimeUnit.SECONDS), "Timed out exiting: " + command);
       output = Files.readString(outputFile, StandardCharsets.UTF_8);

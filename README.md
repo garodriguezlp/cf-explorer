@@ -1,8 +1,9 @@
 # cf-explorer: next version
 
-This branch starts a new version of cf-explorer. Phase 1 is a minimal Java
-application; Cloud Foundry browsing and the other original features are not
-implemented yet. The original application remains available on `main`.
+This branch starts a new version of cf-explorer. It currently provides a
+connection-free shell with example items; Cloud Foundry browsing and the other
+original features are not implemented yet. The original application remains
+available on `main`.
 
 ## Requirements
 
@@ -20,31 +21,38 @@ java -jar target/cf-explorer.jar
 ```
 
 On Windows, use `jbang.cmd` instead of `./jbang`. All four launch commands
-open the same minimal Tambo UI using the JLine terminal backend, showing the
-configured message and count. Press `q` to quit; pass `--help` for CLI help.
+open the same Tambo UI using the JLine terminal backend. Use `/quit` or Ctrl-C
+to quit; pass `--help` for CLI help.
 Run the app in a terminal. The executable jar includes its runtime dependencies.
 
-## Configuration
+## Shell
 
-Picocli reads option defaults from `.cf-explorer.properties` in the user home
-directory, or from the bundled file if no user file exists. For example:
+Type to filter the example list (case-insensitive substring matching), and use
+Up/Down to select an item. Left/Right, Home/End, Backspace, and Delete edit
+the current input. Type `/` to enter command mode without changing the filter;
+type a command name to narrow the available suggestions. Up/Down selects a
+suggestion, Tab completes it, and Enter executes an exact command or the
+selected suggestion. An unknown or unavailable command is reported in place.
 
-```properties
-the.message=Hello from cf-explorer
-count=${CF_EXPLORER_COUNT:-1}
-```
+Use `/mark` to toggle a mark on the selected item, or `/inspect` to open its
+detail view. In a detail view, Esc or `/back` returns to the list with its
+filter and selection intact. Esc cancels command entry; in the list it clears
+the filter when not entering a command. `/quit` is available in both views.
+These example commands do not connect to Cloud Foundry.
+The layout becomes more compact in shorter terminals, and the selected list
+item and command suggestion scroll into view.
 
-The required `--message` option uses `the.message` as its properties key;
-picocli also accepts `message` if `the.message` is absent. The option may be
-supplied on the command line, overriding the configured default. If a
-user-supplied file omits both keys, pass `--message` explicitly.
-The `--count` option is an integer printed after the message. Its default uses
-`CF_EXPLORER_COUNT` (a Java system
-property takes precedence over the environment variable), falling back to 1.
-Set `count` in the properties file or pass `--count` to override it.
-To use a different file, set
-the Java system property `picocli.defaults.cf-explorer.path` to its path. A
-user-supplied file replaces the bundled defaults rather than merging with them.
+The phase 1 placeholder `--message` and `--count` options are no longer used.
+
+## Configuration placeholder
+
+The bundled `.cf-explorer.properties` supplies `cf.api.url` as the default for
+`--cf-api-url`, inspired by the original application. Picocli reads
+`.cf-explorer.properties` in the user home directory instead of the bundled
+file when present; set the Java system property
+`picocli.defaults.cf-explorer.path` to use another file. The command-line option
+overrides the property. This is a placeholder: the shell does not connect to
+the URL or use it yet. The resource is included in both launch paths.
 
 `mvn verify` runs unit tests and starts and exits the TUI through Maven, the
 executable jar, the direct JBang script and the local catalog. These automated
@@ -62,9 +70,8 @@ adding a production source file.
 ```text
 CfExplorer.java
   -> ExplorerScreen.java
-  -> model/WelcomeContent.java
-  -> ui/WelcomeView.java
-  -> ui/components/WelcomeBody.java
+  -> model/ShellState.java
+  -> ui/ShellView.java
 ```
 
 Experiments with JBang 0.135.1 and fresh caches:
@@ -106,8 +113,8 @@ connect to it yet.
 
 `mvn verify` also launches the catalog over local HTTP with an empty JBang
 cache and no checkout in the working directory, checking that the source files
-and resource are fetched. GitHub catalog behavior still needs verification after
-publishing this branch. In an
+and placeholder resource are fetched. GitHub catalog behavior still needs
+verification after publishing this branch. In an
 isolated environment with a fresh JBang home and cache, no checkout, and no
 Maven build or compiled classes, run:
 
@@ -116,5 +123,5 @@ jbang catalog add --name cf-next https://raw.githubusercontent.com/garodriguezlp
 jbang cf-explorer@cf-next
 ```
 
-Confirm that the screen matches the local launches and `q` exits. Do not treat GitHub catalog
+Confirm that the screen matches the local launches and `/quit` exits. Do not treat GitHub catalog
 support as complete until that check succeeds.
