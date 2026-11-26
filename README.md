@@ -52,6 +52,19 @@ launch checks use redirected streams; verify screen rendering in an interactive
 terminal too. The build also checks that the runtime dependencies declared in
 the JBang entry point match those in `pom.xml`.
 
+## Source organization
+
+The entry point starts `ExplorerScreen`, which renders `ui/WelcomeView`.
+Maven discovers both classes in the usual source tree. JBang's entry point
+lists them with `//SOURCES`, using paths relative to that entry point. Add new
+production source files to this directive so JBang can compile them too.
+
+With the included JBang version, `//SOURCES *.java **/*.java` worked locally,
+but did not fetch the additional sources when the entry point was served over
+HTTP. Explicit paths work in both cases. See JBang's
+[file organization documentation](https://www.jbang.dev/documentation/jbang/latest/organizing.html)
+for details.
+
 ## Mock server
 
 The existing WireMock fixtures and local workflow are retained for later
@@ -66,9 +79,10 @@ connect to it yet.
 
 ## Remote catalog
 
-The catalog and resource loading have been exercised over local HTTP with an
-empty JBang cache and without a checkout in the working directory. GitHub
-catalog behavior still needs verification after publishing this branch. In an
+`mvn verify` also launches the catalog over local HTTP with an empty JBang
+cache and no checkout in the working directory, checking that the source files
+and resource are fetched. GitHub catalog behavior still needs verification after
+publishing this branch. In an
 isolated environment with a fresh JBang home and cache, no checkout, and no
 Maven build or compiled classes, run:
 

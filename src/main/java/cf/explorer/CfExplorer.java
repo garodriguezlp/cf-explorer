@@ -8,17 +8,11 @@
 //DEPS dev.tamboui:tamboui-jline3-backend:0.7.0
 //DEPS info.picocli:picocli:4.7.6
 
+//SOURCES ExplorerScreen.java ui/WelcomeView.java
 //FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 
 package cf.explorer;
 
-import static dev.tamboui.toolkit.Toolkit.column;
-import static dev.tamboui.toolkit.Toolkit.panel;
-import static dev.tamboui.toolkit.Toolkit.text;
-
-import dev.tamboui.toolkit.app.ToolkitApp;
-import dev.tamboui.toolkit.element.Element;
-import dev.tamboui.toolkit.event.EventResult;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -48,32 +42,6 @@ public class CfExplorer implements Callable<Integer> {
   }
 
   void showScreen(String message, int count) throws Exception {
-    new Screen(message, count).run();
-  }
-
-  private static final class Screen extends ToolkitApp {
-    private final String message;
-    private final int count;
-
-    Screen(String message, int count) {
-      this.message = message;
-      this.count = count;
-    }
-
-    @Override
-    protected Element render() {
-      return panel(column(text(message), text("Count: " + count), text("Press q to quit.")))
-          .title("cf-explorer")
-          .rounded()
-          .id("main")
-          .focusable()
-          .onKeyEvent(event -> {
-            if (event.isChar('q') || event.isCtrlC()) {
-              quit();
-              return EventResult.HANDLED;
-            }
-            return EventResult.UNHANDLED;
-          });
-    }
+    new ExplorerScreen(message, count).run();
   }
 }
