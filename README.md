@@ -29,11 +29,11 @@ Run the app in a terminal. The executable jar includes its runtime dependencies.
 
 Type to filter apps by name, state, organization, space, GUID, or
 created/updated date. Matching is case-insensitive; whitespace-separated tokens
-must all match some field. Matches are highlighted in the results. Use Up/Down to select an
-app, indicated by the highlighted row and `>`. Left/Right, Home/End, Backspace,
-and Delete edit the filter. Type `/` to switch the same input to command mode
-without changing the filter;
-type a command name to narrow the available suggestions. Up/Down selects a
+must all match some field. Matches are highlighted in the results. Use Up/Down
+to select an app, indicated by the highlighted row and `>`. Left/Right,
+Home/End, Backspace, and Delete edit the filter. Type `/` to switch the same
+input to command mode without changing the filter; type a command name to
+narrow the available suggestions. Up/Down selects a
 suggestion, Tab completes it, and Enter executes an exact command or the
 selected suggestion. An unknown or unavailable command is reported in place.
 
@@ -95,9 +95,10 @@ pages are UI/application components, not domain models. To add a feature:
    suggestions and execution.
 2. For a view, implement `ShellPage` and open it with `openPage`. A page may
    handle its own keys and expose its selection through `selected()`;
-   `selected(App.class)` obtains a typed selection from the active view (or
-   `null` when unavailable), not a selection in a background view. Ctrl-C, Esc, and `/`
-   remain shell controls. Back restores the previous page or list context.
+   `selected(ApplicationCatalog.App.class)` obtains a typed selection from the
+   active view (or `null` when unavailable), not a selection in a background
+   view. Ctrl-C, Esc, and `/` remain shell controls. Back restores the previous
+   page or list context.
 3. For background work, capture the required immutable inputs on the render
    thread and use `openAsyncPage`. Work runs on the injected executor; the
    result is applied through the render-thread dispatcher. Loading and errors
@@ -151,7 +152,7 @@ settings use it.
 
 `mvn verify` also launches the catalog over local HTTP with an empty JBang
 cache and no checkout in the working directory, checking that the source files
-and placeholder resource are fetched. GitHub catalog behavior still needs
+and configuration resource are fetched. GitHub catalog behavior still needs
 verification after publishing this branch. In an
 isolated environment with a fresh JBang home and cache, no checkout, and no
 Maven build or compiled classes, run:
