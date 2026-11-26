@@ -28,16 +28,23 @@ Run the app in a terminal. The executable jar includes its runtime dependencies.
 ## Shell
 
 Type to filter the example list (case-insensitive substring matching), and use
-Up/Down to select an item. Left/Right, Home/End, Backspace, and Delete edit
+Up/Down to select one item, indicated by the highlighted row and `>`.
+Left/Right, Home/End, Backspace, and Delete edit
 the current input. Type `/` to enter command mode without changing the filter;
 type a command name to narrow the available suggestions. Up/Down selects a
 suggestion, Tab completes it, and Enter executes an exact command or the
 selected suggestion. An unknown or unavailable command is reported in place.
 
-Use `/mark` to toggle a mark on the selected item, or `/inspect` to open its
-detail view. In a detail view, Esc or `/back` returns to the list with its
-filter and selection intact. Esc cancels command entry; in the list it clears
-the filter when not entering a command. `/quit` is available in both views.
+Use `/mark` to toggle an in-session example label on the selected item; marks
+are not selections and commands operate on the highlighted item only.
+Use `/inspect` to open its detail view, or `/resources` to browse its local
+example resources. In the resources view, Up/Down selects a resource and
+`/inspect` opens that resource's details. `/summary` asynchronously counts
+the visible items and their marks using a snapshot of the current list.
+In a view, Esc or `/back` returns to the previous view, preserving its selection
+and the list filter. Esc cancels command
+entry; in the list it clears the filter when not entering a command. `/quit`
+is available in both views.
 These example commands do not connect to Cloud Foundry.
 The layout becomes more compact in shorter terminals, and the selected list
 item and command suggestion scroll into view.
@@ -70,12 +77,37 @@ Maven discovers the production classes in the usual source tree. For JBang,
 directive, with paths relative to the entry point. Add a directive there when
 adding a production source file.
 
-```text
-CfExplorer.java
-  -> ExplorerScreen.java
-  -> model/ShellState.java
-  -> ui/ShellView.java
-```
+The shell routes input and owns navigation; `ExampleFeatures` owns the example
+commands, mark state, and pages. Commands are registered at startup in
+`ExplorerScreen`. The shell state and pages are UI/application components, not
+domain models. To add a feature:
+
+1. Define a `ShellCommand` with a unique lowercase name, description,
+   availability predicate, and action; register it in `ExplorerScreen`.
+   Availability is evaluated against the current shell state for both
+   suggestions and execution.
+2. For a view, implement `ShellPage` and open it with `openPage`. A page may
+   handle its own keys and expose its selection through `selected()`;
+   `currentSelection()` reads the active view's selection (or `null` when it
+   has none), not the selection in a background view. Ctrl-C, Esc, and `/`
+   remain shell controls. Back restores the previous page or list context.
+3. For background work, capture the required immutable inputs on the render
+   thread and use `openAsyncPage`. Work runs on the injected executor; the
+   result is applied through the render-thread dispatcher. Loading and errors
+   are displayed, and a result is discarded after navigating away or quitting.
+   Navigating away does **not** cancel the work or undo its side effects.
+   Labels and displayed error messages must not contain secrets; diagnostics
+   log exception types rather than exception messages.
+4. Add focused tests and a `//SOURCES` directive in `CfExplorer.java` for every
+   new production source file.
+
+The current list is still a fixed list of strings with example-specific
+filtering and presentation. Migrating the CF catalog will require a typed
+catalog model with stable identities, replaceable/paginated data and its own
+filtering; the command and page boundaries do not implement those features.
+Authentication, configuration, cache, network I/O, export and keystore logic
+remain separate migration work. Keep those domain and I/O concerns out of the
+shell and execute blocking work off the render thread.
 
 Experiments with JBang 0.135.1 and fresh caches:
 

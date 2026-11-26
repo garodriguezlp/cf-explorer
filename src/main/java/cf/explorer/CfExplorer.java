@@ -9,6 +9,10 @@
 //DEPS info.picocli:picocli:4.7.6
 
 //SOURCES ExplorerScreen.java
+//SOURCES example/ExampleFeatures.java
+//SOURCES model/ShellCommand.java
+//SOURCES model/ShellCommands.java
+//SOURCES model/ShellPage.java
 //SOURCES model/ShellState.java
 //SOURCES ui/ShellView.java
 
