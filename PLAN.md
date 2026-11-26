@@ -41,7 +41,7 @@ enough for this phase.
   dependencies included or resolved; document run commands and Java version.
 - A JBang catalog alias for the chosen entry point or artifact. Preserve the
   mock-server alias and workflow.
-- Keep the existing app usable until an explicit cutover.
+- Keep the existing app usable on `main` while this branch starts from scratch.
 
 **Acceptance**
 
