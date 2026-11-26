@@ -65,6 +65,17 @@ class CfExplorerTest {
     assertEquals("Hello\n0", result.output());
   }
 
+  @Test
+  void countDefaultsAndOverridesArePassedToTheScreen() throws Exception {
+    Files.writeString(home.resolve(".cf-explorer.properties"),
+        "the.message=Hello\ncount=${CF_EXPLORER_COUNT:-1}\n");
+
+    assertEquals("Hello\n1", executeWithHome().output());
+    assertEquals("Hello\n3", executeWithHome("--count", "3").output());
+    Files.writeString(home.resolve(".cf-explorer.properties"), "the.message=Hello\ncount=2\n");
+    assertEquals("Hello\n2", executeWithHome().output());
+  }
+
   private Result executeWithHome(String... args) {
     StringWriter output = new StringWriter();
     StringWriter error = new StringWriter();
@@ -75,7 +86,12 @@ class CfExplorerTest {
       System.setProperty("user.home", home.toString());
       System.clearProperty("picocli.defaults.cf-explorer.path");
       System.setProperty("CF_EXPLORER_COUNT", "1");
-      CommandLine command = new CommandLine(new CfExplorer())
+      CommandLine command = new CommandLine(new CfExplorer() {
+        @Override
+        void showScreen(String message, int count) {
+          output.write(message + "\n" + count);
+        }
+      })
           .setOut(new PrintWriter(output)).setErr(new PrintWriter(error));
       int exitCode = command.execute(args);
       return new Result(exitCode, output.toString().strip().replace("\r\n", "\n"), error.toString());

@@ -20,8 +20,9 @@ java -jar target/cf-explorer.jar
 ```
 
 On Windows, use `jbang.cmd` instead of `./jbang`. All four launch commands
-print the same minimal application message and count; pass `--help` for CLI help.
-The executable jar includes its runtime dependencies.
+open the same minimal Tambo UI using the JLine terminal backend, showing the
+configured message and count. Press `q` to quit; pass `--help` for CLI help.
+Run the app in a terminal. The executable jar includes its runtime dependencies.
 
 ## Configuration
 
@@ -45,9 +46,11 @@ To use a different file, set
 the Java system property `picocli.defaults.cf-explorer.path` to its path. A
 user-supplied file replaces the bundled defaults rather than merging with them.
 
-`mvn verify` runs unit tests and launch checks for Maven, the executable jar,
-the direct JBang script and the local catalog. It also checks that the runtime
-dependencies declared in the JBang entry point match those in `pom.xml`.
+`mvn verify` runs unit tests and starts and exits the TUI through Maven, the
+executable jar, the direct JBang script and the local catalog. These automated
+launch checks use redirected streams; verify screen rendering in an interactive
+terminal too. The build also checks that the runtime dependencies declared in
+the JBang entry point match those in `pom.xml`.
 
 ## Mock server
 
@@ -74,5 +77,5 @@ jbang catalog add --name cf-next https://raw.githubusercontent.com/garodriguezlp
 jbang cf-explorer@cf-next
 ```
 
-Confirm that the output matches the local launches. Do not treat GitHub catalog
+Confirm that the screen matches the local launches and `q` exits. Do not treat GitHub catalog
 support as complete until that check succeeds.
