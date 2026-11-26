@@ -27,9 +27,9 @@ Run the app in a terminal. The executable jar includes its runtime dependencies.
 
 ## Shell
 
-Type to filter apps by name, state, organization, space, or created/updated
-date. Matching is case-insensitive; whitespace-separated tokens must all match
-some field. Matches are highlighted in the results. Use Up/Down to select an
+Type to filter apps by name, state, organization, space, GUID, or
+created/updated date. Matching is case-insensitive; whitespace-separated tokens
+must all match some field. Matches are highlighted in the results. Use Up/Down to select an
 app, indicated by the highlighted row and `>`. Left/Right, Home/End, Backspace,
 and Delete edit the filter. Type `/` to switch the same input to command mode
 without changing the filter;

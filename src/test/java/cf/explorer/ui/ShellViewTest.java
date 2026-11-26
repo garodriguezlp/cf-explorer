@@ -43,7 +43,7 @@ class ShellViewTest {
     assertTrue(render(state).contains("Loading Cloud Foundry catalog"));
     catalog.loaded(new ApplicationCatalog(1, 2, List.of(first, second)));
     assertTrue(render(state).contains("Apps  2/2"));
-    assertTrue(render(state).contains("same  |  STARTED  |  team / production"));
+    assertTrue(render(state).contains("STARTED   c: 2024-01-01 \u203a u: 2024-02-01"));
     ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, () -> {});
     assertEquals(second, state.selected(ApplicationCatalog.App.class));
     for (char c : "staging".toCharArray()) {
@@ -112,6 +112,32 @@ class ShellViewTest {
     state.requestQuit();
     dispatch.remove().run();
     assertNull(state.currentSelection());
+  }
+
+  @Test
+  void catalogShowsMatchesInLongNamesAndIdentifiers() {
+    var app = new ApplicationCatalog.App("unique-guid-987",
+        "very-long-application-name-with-many-parts-and-a-needle-near-the-end",
+        "STARTED", "space-id", "production", "org-id", "organization",
+        "2024-01-01", "2024-01-02");
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    page.loaded(new ApplicationCatalog(1, 1, List.of(app)));
+    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
+        Runnable::run, Runnable::run);
+    state.setRootPage(page);
+    for (char c : "needle".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    String screen = render(state, 100, 24);
+    assertTrue(screen.contains("needle"), screen);
+    assertTrue(screen.contains("\u2026"), screen);
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    for (char c : "unique-guid".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    screen = render(state, 100, 24);
+    assertTrue(screen.contains("id: unique-guid-987"), screen);
+    assertEquals(app, state.selected(ApplicationCatalog.App.class));
   }
 
   @Test

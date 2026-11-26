@@ -9,18 +9,26 @@ import cf.explorer.catalog.ApplicationCatalog;
 import cf.explorer.model.ShellPage;
 import dev.tamboui.style.Color;
 import dev.tamboui.style.Style;
+import dev.tamboui.layout.Rect;
+import dev.tamboui.terminal.Frame;
 import dev.tamboui.text.Line;
 import dev.tamboui.text.Span;
 import dev.tamboui.text.Text;
 import dev.tamboui.toolkit.element.Element;
+import dev.tamboui.toolkit.element.RenderContext;
+import dev.tamboui.toolkit.element.Size;
+import dev.tamboui.toolkit.element.StyledElement;
 import dev.tamboui.toolkit.event.EventResult;
 import dev.tamboui.tui.event.KeyCode;
 import dev.tamboui.tui.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -122,6 +130,10 @@ public final class ApplicationCatalogPage implements ShellPage {
       return panel(text(" Loading Cloud Foundry catalog..."))
           .title(" Loading ").rounded().borderColor(Color.CYAN).fill();
     }
+    return new CatalogLayout().fill();
+  }
+
+  private Element renderCatalog(int width) {
     List<ApplicationCatalog.App> visible = catalog.filter(filter);
     String title = " Apps  " + visible.size() + "/" + catalog.apps().size()
         + "  Orgs " + catalog.organizations() + "  Spaces " + catalog.spaces() + " ";
@@ -137,10 +149,25 @@ public final class ApplicationCatalogPage implements ShellPage {
       }
     }
     Pattern matches = matchPattern(filter);
-    return list().data(visible, app -> richText(highlight(row(app), matches)))
+    int widestMetadata = visible.stream().map(app -> metadata(app, filter))
+        .mapToInt(value -> value.codePointCount(0, value.length())).max().orElse(0);
+    int nameWidth = Math.max(8, Math.min(45, width - widestMetadata - 4));
+    return list().data(visible, app -> richText(highlight(row(app, matches, nameWidth), matches)))
         .title(title).rounded().borderColor(Color.CYAN).highlightSymbol("> ")
         .highlightStyle(Style.create().bg(Color.indexed(236)).bold())
         .selected(selected).autoScroll().focusable(false).fill();
+  }
+
+  private final class CatalogLayout extends StyledElement<CatalogLayout> {
+    @Override
+    public Size preferredSize(int width, int height, RenderContext context) {
+      return Size.UNKNOWN;
+    }
+
+    @Override
+    protected void renderContent(Frame frame, Rect area, RenderContext context) {
+      context.renderChild(renderCatalog(area.width()), frame, area);
+    }
   }
 
   @Override
@@ -198,10 +225,57 @@ public final class ApplicationCatalogPage implements ShellPage {
     }
   }
 
-  private static String row(ApplicationCatalog.App app) {
-    return app.name() + "  |  " + app.state() + "  |  " + app.orgName() + " / "
-        + app.spaceName() + "  |  Created " + date(app.createdAt())
-        + "  |  Updated " + date(app.updatedAt());
+  private String row(ApplicationCatalog.App app, Pattern matches, int nameWidth) {
+    String name = displayName(app.name(), matches, nameWidth);
+    int padding = Math.max(0, nameWidth - name.codePointCount(0, name.length()));
+    return name + " ".repeat(padding) + metadata(app, filter);
+  }
+
+  private static String metadata(ApplicationCatalog.App app, String filter) {
+    String identifiers = matchingIdentifiers(app, filter);
+    return "  " + identifiers + String.format("%-8s", app.state())
+        + "  c: " + date(app.createdAt()) + " \u203a u: " + date(app.updatedAt())
+        + "  " + app.orgName() + " \u203a " + app.spaceName();
+  }
+
+  private static String matchingIdentifiers(ApplicationCatalog.App app, String filter) {
+    if (filter.isBlank()) {
+      return "";
+    }
+    String displayed = String.join(" ", app.name(), app.state(), app.orgName(), app.spaceName(),
+        date(app.createdAt()), date(app.updatedAt())).toLowerCase(Locale.ROOT);
+    Set<String> identifiers = new LinkedHashSet<>();
+    for (String token : filter.trim().toLowerCase(Locale.ROOT).split("\\s+")) {
+      if (!displayed.contains(token)) {
+        for (String id : List.of(app.guid(), app.orgGuid(), app.spaceGuid())) {
+          if (id.toLowerCase(Locale.ROOT).contains(token)) {
+            identifiers.add(id);
+          }
+        }
+      }
+    }
+    return identifiers.isEmpty() ? "" : "id: " + String.join(", ", identifiers) + "  ";
+  }
+
+  private static String displayName(String name, Pattern matches, int width) {
+    int length = name.codePointCount(0, name.length());
+    if (length <= width) {
+      return name;
+    }
+    int start = 0;
+    if (matches != null) {
+      Matcher matcher = matches.matcher(name);
+      if (matcher.find()) {
+        int matchEnd = name.codePointCount(0, matcher.end());
+        if (matchEnd > width - 1) {
+          start = Math.max(1, matchEnd - (width - 2));
+        }
+      }
+    }
+    int end = Math.min(length, start + (start == 0 ? width - 1 : width - 2));
+    String visible = name.substring(name.offsetByCodePoints(0, start),
+        name.offsetByCodePoints(0, end));
+    return (start == 0 ? "" : "\u2026") + visible + (end == length ? "" : "\u2026");
   }
 
   private static Pattern matchPattern(String filter) {

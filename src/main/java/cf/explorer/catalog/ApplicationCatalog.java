@@ -21,6 +21,8 @@ public record ApplicationCatalog(int organizations, int spaces, List<App> apps) 
     return apps.stream().filter(app -> tokens.stream().allMatch(token ->
         contains(app.name(), token) || contains(app.state(), token)
             || contains(app.spaceName(), token) || contains(app.orgName(), token)
+            || contains(app.guid(), token) || contains(app.spaceGuid(), token)
+            || contains(app.orgGuid(), token)
             || contains(date(app.createdAt()), token) || contains(date(app.updatedAt()), token)))
         .toList();
   }
