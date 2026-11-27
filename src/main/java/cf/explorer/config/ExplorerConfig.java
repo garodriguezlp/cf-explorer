@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+/** Fully resolved runtime configuration for one cf-explorer session. */
 public record ExplorerConfig(
     String env,
     String uaaUrl,
@@ -13,6 +14,7 @@ public record ExplorerConfig(
     String cfUsername,
     String cfPassword,
     String cfWebUrl,
+    boolean skipSslValidation,
     boolean fresh,
     List<String> excludeKeys,
     Map<String, EnvProcessor> postProcessors,

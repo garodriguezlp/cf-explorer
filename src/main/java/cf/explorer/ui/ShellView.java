@@ -5,8 +5,8 @@ import static dev.tamboui.toolkit.Toolkit.list;
 import static dev.tamboui.toolkit.Toolkit.panel;
 import static dev.tamboui.toolkit.Toolkit.text;
 
-import cf.explorer.model.ShellState;
 import cf.explorer.model.ShellCommand;
+import cf.explorer.model.ShellState;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
 import dev.tamboui.style.Style;
@@ -22,6 +22,7 @@ import dev.tamboui.tui.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Renders the shell chrome around the active page and routes key events. */
 public final class ShellView {
   private ShellView() {}
 
@@ -33,23 +34,8 @@ public final class ShellView {
   private static Element layout(ShellState state, int height) {
     boolean compact = height < 16;
     List<Element> layout = new ArrayList<>();
-    layout.add(text(state.rootPage() == null ? " CF EXPLORER  /  EXAMPLE WORKSPACE"
-        : " CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
-    if (state.page() == null && state.rootPage() == null) {
-      List<String> items = state.visibleItems();
-      if (items.isEmpty()) {
-        layout.add(panel(text(state.filter().isEmpty() ? " No items." : " No matching items.").dim())
-            .title(" Examples  0 shown ").rounded().borderColor(Color.CYAN).fill());
-      } else {
-        List<String> rows = items.stream().map(state::itemLabel).toList();
-        layout.add(list(rows).title(" Examples  " + items.size() + " shown ")
-            .rounded().borderColor(Color.CYAN).highlightSymbol("> ")
-            .highlightStyle(Style.create().fg(Color.LIGHT_CYAN).bg(Color.indexed(236)).bold())
-            .selected(items.indexOf(state.selected())).autoScroll().focusable(false).fill());
-      }
-    } else {
-      layout.add((state.page() != null ? state.page() : state.rootPage()).render());
-    }
+    layout.add(text(" CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
+    layout.add(state.activePage().render());
 
     if (state.command() != null) {
       List<ShellCommand> suggestions = state.suggestions();
@@ -59,7 +45,8 @@ public final class ShellView {
             .rounded().borderColor(Color.LIGHT_CYAN).length(3));
       } else {
         List<String> rows = suggestions.stream()
-            .map(suggestion -> "/" + suggestion.name() + "  -  " + suggestion.description()).toList();
+            .map(suggestion -> "/" + suggestion.name() + "  -  " + suggestion.description())
+            .toList();
         ListElement<?> commands = list(rows).highlightSymbol("> ")
             .highlightStyle(Style.create().fg(Color.LIGHT_CYAN).bold())
             .selected(state.suggestionIndex()).autoScroll().focusable(false);
@@ -72,17 +59,13 @@ public final class ShellView {
       }
     }
 
-    String rootInput = state.page() == null && state.rootPage() != null
-        ? state.rootPage().inputValue() : null;
+    String pageInput = state.command() == null ? state.activePage().inputValue() : null;
     String input = state.command() != null
         ? "/" + editing(state.command(), state.cursor())
-        : rootInput != null ? editing(rootInput, state.rootPage().inputCursor())
-            : state.page() == null && state.rootPage() == null
-                ? editing(state.filter(), state.cursor()) : "Type / for commands";
+        : pageInput != null ? editing(pageInput, state.activePage().inputCursor())
+            : "Type / for commands";
     layout.add(panel(text(" " + input).fg(Color.BRIGHT_WHITE))
-        .title(state.command() != null ? " Command "
-            : rootInput != null || state.page() == null && state.rootPage() == null
-                ? " Filter " : " Input ")
+        .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
         .rounded().borderColor(Color.LIGHT_CYAN).length(3));
     if (!state.status().isEmpty()) {
       layout.add(text(" " + state.status()).fg(Color.LIGHT_YELLOW));
@@ -90,7 +73,8 @@ public final class ShellView {
     if (compact) {
       layout.add(text(" Esc back/cancel  |  Ctrl-C quit").fg(Color.GRAY));
     } else {
-      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run").fg(Color.GRAY));
+      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run")
+          .fg(Color.GRAY));
       layout.add(text(" Esc cancel/back  |  Ctrl-C quit").fg(Color.GRAY));
     }
     return column(layout.toArray(Element[]::new));
@@ -98,6 +82,7 @@ public final class ShellView {
 
   private static final class ShellLayout extends StyledElement<ShellLayout> {
     private final ShellState state;
+
     private ShellLayout(ShellState state) {
       this.state = state;
     }
@@ -117,24 +102,25 @@ public final class ShellView {
     return cursor < 0 ? value : value.substring(0, cursor) + "|" + value.substring(cursor);
   }
 
+  /**
+   * Routes a key event. Outside command mode the active page handles keys first, except {@code /}
+   * (which starts command entry) and Esc on opened pages (which navigates back). The root page
+   * receives Esc so it can clear its filter.
+   */
   static EventResult handleKey(KeyEvent event, ShellState state, Runnable quit) {
     if (!event.isPressOrRepeat()) {
       return EventResult.UNHANDLED;
     }
+    boolean slash = event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/';
     if (event.isCtrlC()) {
       state.requestQuit();
       quit.run();
-    } else if (event.isKey(KeyCode.ESCAPE) && state.command() == null && state.page() == null
-        && state.rootPage() != null
-        && state.rootPage().handleKey(event) == EventResult.HANDLED) {
+    } else if (state.command() == null && !slash
+        && (state.page() == null || !event.isKey(KeyCode.ESCAPE))
+        && state.activePage().handleKey(event) == EventResult.HANDLED) {
       return EventResult.HANDLED;
     } else if (event.isKey(KeyCode.ESCAPE)) {
       state.cancel();
-    } else if (state.command() == null && (state.page() != null || state.rootPage() != null)
-        && !(event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/')
-        && (state.page() != null ? state.page() : state.rootPage()).handleKey(event)
-            == EventResult.HANDLED) {
-      return EventResult.HANDLED;
     } else if (event.isKey(KeyCode.UP)) {
       state.moveSelection(-1);
     } else if (event.isKey(KeyCode.DOWN)) {

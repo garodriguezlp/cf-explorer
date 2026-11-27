@@ -14,6 +14,7 @@ import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.EnvExportPage;
+import cf.explorer.ui.ErrorMessages;
 import cf.explorer.ui.KeystoreViewPage;
 import dev.tamboui.style.Color;
 import java.io.IOException;
@@ -69,7 +70,8 @@ public final class ExplorerCommands {
               Thread.currentThread().interrupt();
               throw new CompletionException(ex);
             } catch (IOException ex) {
-              throw new CompletionException(ex);
+              LOG.warning("Environment export failed (" + ex.getClass().getName() + ")");
+              return safeErrorPage(" Export Error ", "Export failed: " + ErrorMessages.describe(ex));
             }
           });
         }));
@@ -132,7 +134,9 @@ public final class ExplorerCommands {
               Thread.currentThread().interrupt();
               throw new CompletionException(ex);
             } catch (IOException ex) {
-              throw new CompletionException(ex);
+              LOG.warning("Keystore export failed (" + ex.getClass().getName() + ")");
+              return safeErrorPage(" Keystore Error ",
+                  "Keystore export failed: " + ErrorMessages.describe(ex));
             }
           });
         }));
@@ -153,7 +157,7 @@ public final class ExplorerCommands {
         text(" " + message).fg(Color.LIGHT_YELLOW),
         text(""),
         text(" Press Esc or /back to return to the app catalog.").dim()))
-        .title(title).rounded().borderColor(Color.YELLOW).fill();
+        .title(title).rounded().borderColor(Color.RED).fill();
   }
 
   private static Throwable unwrap(Throwable error) {

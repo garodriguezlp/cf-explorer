@@ -1,6 +1,11 @@
 package cf.explorer.config;
 
+/** Named post-processors applied to selected environment values during {@code .env} export. */
 public enum EnvProcessor {
+  /**
+   * Strips boundary double quotes, unescapes inner quotes, and collapses whitespace. Intended for
+   * {@code SPRING_APPLICATION_JSON} and similar JSON-valued keys.
+   */
   JSON {
     @Override
     public String process(String rawValue) {

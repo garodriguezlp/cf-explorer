@@ -1,6 +1,7 @@
 package cf.explorer.catalog;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -111,7 +112,9 @@ class CatalogCacheAndRefreshTest {
     dispatch.remove().run();
     assertEquals("guid-2", page.selected().guid());
     assertEquals("alpha", page.inputValue());
-    assertEquals("Catalog refresh failed. Keeping previous catalog.", status.get());
+    assertEquals("Catalog refresh failed: Unexpected error (IllegalStateException). "
+        + "Keeping previous catalog.", status.get());
+    assertFalse(status.get().contains("secret"));
 
     // Overlapping refreshes: older completion must not overwrite newer result
     page.startRefresh(() -> new ApplicationCatalog(1, 1, List.of(app1)),

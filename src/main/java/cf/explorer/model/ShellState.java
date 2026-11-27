@@ -14,61 +14,52 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 
-/** Interaction state for the connection-free shell. */
+/**
+ * Interaction state for the command-driven shell: the root page, the stack of opened pages, the
+ * slash-command input, and the status line.
+ *
+ * <p>The root page owns its own list, filter, and selection. The shell only owns command entry
+ * and navigation. All methods must be called on the render thread.
+ */
 public final class ShellState {
   private static final Logger LOG = Logger.getLogger(ShellState.class.getName());
-  private final List<String> items;
+  private final ShellPage rootPage;
   private final List<ShellCommand> commands;
-  private final Function<String, String> itemLabel;
   private final Executor worker;
   private final Consumer<Runnable> dispatch;
   private final Deque<ShellPage> previousPages = new ArrayDeque<>();
-  private String filter = "";
-  private String selected;
   private ShellPage page;
-  private ShellPage rootPage;
   private ShellPage loadingPage;
   private String command;
   private int cursor;
-  private int filterCursor;
   private int suggestionIndex;
   private String status = "";
   private boolean quit;
 
-  public ShellState(List<String> items, List<ShellCommand> commands,
-      Function<String, String> itemLabel, Executor worker, Consumer<Runnable> dispatch) {
-    this.items = List.copyOf(items);
+  public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
+      Consumer<Runnable> dispatch) {
+    this.rootPage = Objects.requireNonNull(rootPage);
     this.commands = List.copyOf(commands);
-    this.itemLabel = Objects.requireNonNull(itemLabel);
     this.worker = Objects.requireNonNull(worker);
     this.dispatch = Objects.requireNonNull(dispatch);
     if (commands.stream().map(ShellCommand::name).distinct().count() != commands.size()) {
       throw new IllegalArgumentException("Duplicate command name");
     }
-    selected = items.isEmpty() ? null : items.get(0);
   }
 
-  public List<String> visibleItems() {
-    String needle = filter.toLowerCase(Locale.ROOT);
-    return items.stream().filter(item -> item.toLowerCase(Locale.ROOT).contains(needle)).toList();
-  }
-
-  public String filter() { return filter; }
-  public String selected() { return selected; }
+  /** The opened page, or {@code null} when the root page is active. */
   public ShellPage page() { return page; }
   public ShellPage rootPage() { return rootPage; }
-  public void setRootPage(ShellPage rootPage) { this.rootPage = Objects.requireNonNull(rootPage); }
-  public Object currentSelection() {
-    return page != null ? page.selected() : rootPage != null ? rootPage.selected() : selected;
-  }
+  public ShellPage activePage() { return page != null ? page : rootPage; }
+  public Object currentSelection() { return activePage().selected(); }
   public <T> T selected(Class<T> type) {
     Object selection = currentSelection();
     return type.isInstance(selection) ? type.cast(selection) : null;
   }
+  /** The command being typed (without the leading slash), or {@code null} outside command mode. */
   public String command() { return command; }
   public int cursor() { return cursor; }
   public int suggestionIndex() {
@@ -76,7 +67,6 @@ public final class ShellState {
   }
   public String status() { return status; }
   public boolean quitRequested() { return quit; }
-  public String itemLabel(String item) { return itemLabel.apply(item); }
 
   public List<ShellCommand> suggestions() {
     if (command == null) {
@@ -87,18 +77,15 @@ public final class ShellState {
         .filter(candidate -> candidate.name().startsWith(prefix)).toList();
   }
 
+  /** Starts command mode on {@code /}, or edits the command being typed. Other input is ignored. */
   public void type(int codePoint) {
     if (command == null && codePoint == '/') {
-      if (page == null) {
-        filterCursor = cursor;
-      }
       command = "";
       cursor = 0;
     } else if (command != null) {
-      command = insert(command, codePoint);
-    } else if (page == null) {
-      filter = insert(filter, codePoint);
-      reconcileSelection();
+      String inserted = new String(Character.toChars(codePoint));
+      command = command.substring(0, cursor) + inserted + command.substring(cursor);
+      cursor += inserted.length();
     } else {
       return;
     }
@@ -106,82 +93,49 @@ public final class ShellState {
     status = "";
   }
 
-  private String insert(String value, int codePoint) {
-    String inserted = new String(Character.toChars(codePoint));
-    String result = value.substring(0, cursor) + inserted + value.substring(cursor);
-    cursor += inserted.length();
-    return result;
-  }
-
   public void backspace() {
-    String value = editingValue();
-    if (value == null || cursor == 0) {
+    if (command == null || cursor == 0) {
       return;
     }
-    int start = value.offsetByCodePoints(cursor, -1);
-    replaceEdited(value.substring(0, start) + value.substring(cursor), start);
+    int start = command.offsetByCodePoints(cursor, -1);
+    replaceCommand(command.substring(0, start) + command.substring(cursor), start);
   }
 
   public void delete() {
-    String value = editingValue();
-    if (value == null || cursor == value.length()) {
+    if (command == null || cursor == command.length()) {
       return;
     }
-    int end = value.offsetByCodePoints(cursor, 1);
-    replaceEdited(value.substring(0, cursor) + value.substring(end), cursor);
+    int end = command.offsetByCodePoints(cursor, 1);
+    replaceCommand(command.substring(0, cursor) + command.substring(end), cursor);
   }
 
   public void moveCursor(int direction) {
-    String value = editingValue();
-    if (value != null && ((direction < 0 && cursor > 0)
-        || (direction > 0 && cursor < value.length()))) {
-      cursor = value.offsetByCodePoints(cursor, direction < 0 ? -1 : 1);
+    if (command != null && ((direction < 0 && cursor > 0)
+        || (direction > 0 && cursor < command.length()))) {
+      cursor = command.offsetByCodePoints(cursor, direction < 0 ? -1 : 1);
     }
   }
 
   public void cursorToStart() { cursor = 0; }
+
   public void cursorToEnd() {
-    String value = editingValue();
-    if (value != null) {
-      cursor = value.length();
-    }
-  }
-
-  private String editingValue() {
-    return command != null ? command : page == null ? filter : null;
-  }
-
-  private void replaceEdited(String value, int newCursor) {
     if (command != null) {
-      command = value;
-      suggestionIndex = 0;
-    } else {
-      filter = value;
-      reconcileSelection();
+      cursor = command.length();
     }
+  }
+
+  private void replaceCommand(String value, int newCursor) {
+    command = value;
+    suggestionIndex = 0;
     cursor = newCursor;
     status = "";
   }
 
-  private void reconcileSelection() {
-    List<String> visible = visibleItems();
-    if (!visible.contains(selected)) {
-      selected = visible.isEmpty() ? null : visible.get(0);
-    }
-  }
-
+  /** Moves the highlighted suggestion while in command mode. */
   public void moveSelection(int direction) {
-    if (command != null) {
-      int size = suggestions().size();
-      if (size > 0) {
-        suggestionIndex = Math.max(0, Math.min(size - 1, suggestionIndex() + direction));
-      }
-    } else if (page == null) {
-      List<String> visible = visibleItems();
-      if (!visible.isEmpty()) {
-        int index = Math.max(0, Math.min(visible.size() - 1, visible.indexOf(selected) + direction));
-        selected = visible.get(index);
-      }
+    int size = suggestions().size();
+    if (command != null && size > 0) {
+      suggestionIndex = Math.max(0, Math.min(size - 1, suggestionIndex() + direction));
     }
   }
 
@@ -214,10 +168,10 @@ public final class ShellState {
       status = "Command unavailable: /" + chosen.name();
     } else {
       status = "";
+      command = null;
+      cursor = 0;
       try {
         chosen.execute().accept(this);
-        command = null;
-        cursor = page == null ? filterCursor : 0;
       } catch (RuntimeException ex) {
         logFailure("Command /" + chosen.name(), ex);
         status = "Command failed: /" + chosen.name();
@@ -229,9 +183,6 @@ public final class ShellState {
 
   public void openPage(ShellPage next) {
     Objects.requireNonNull(next);
-    if (page == null && command == null) {
-      filterCursor = cursor;
-    }
     if (page != null && page != loadingPage) {
       previousPages.push(page);
     }
@@ -242,11 +193,14 @@ public final class ShellState {
   public void back() {
     loadingPage = null;
     page = previousPages.poll();
-    cursor = page == null ? filterCursor : 0;
   }
 
   public void requestQuit() { quit = true; }
 
+  /**
+   * Opens a loading page, runs {@code work} on the worker, and replaces the loading page with the
+   * result on the render thread. The result is discarded if the user navigated away or quit.
+   */
   public void openAsyncPage(String label, Supplier<? extends ShellPage> work) {
     Objects.requireNonNull(label);
     Objects.requireNonNull(work);
@@ -264,8 +218,7 @@ public final class ShellState {
               dispatch.accept(() -> {
                 if (page == loading && !quit) {
                   loadingPage = null;
-                  page = error == null ? result : () -> panel(text(" " + label + " failed."))
-                      .title(" Error ").rounded().borderColor(Color.CYAN).fill();
+                  page = error == null ? result : failurePage(label);
                 }
               });
             } catch (RuntimeException ex) {
@@ -275,9 +228,13 @@ public final class ShellState {
     } catch (RejectedExecutionException ex) {
       logFailure(label, ex);
       loadingPage = null;
-      page = () -> panel(text(" " + label + " failed."))
-          .title(" Error ").rounded().borderColor(Color.CYAN).fill();
+      page = failurePage(label);
     }
+  }
+
+  private static ShellPage failurePage(String label) {
+    return () -> panel(text(" " + label + " failed."))
+        .title(" Error ").rounded().borderColor(Color.RED).fill();
   }
 
   private static void logFailure(String operation, Throwable error) {
@@ -286,17 +243,14 @@ public final class ShellState {
     LOG.warning(operation + " failed (" + cause.getClass().getName() + ")");
   }
 
+  /** Cancels command entry, or returns from the opened page. */
   public void cancel() {
     status = "";
     if (command != null) {
       command = null;
-      cursor = page == null ? filterCursor : 0;
+      cursor = 0;
     } else if (page != null) {
       back();
-    } else if (!filter.isEmpty()) {
-      filter = "";
-      cursor = 0;
-      reconcileSelection();
     }
   }
 }

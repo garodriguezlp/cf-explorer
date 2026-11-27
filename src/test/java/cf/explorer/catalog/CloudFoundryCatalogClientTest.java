@@ -36,7 +36,11 @@ class CloudFoundryCatalogClientTest {
       assertEquals("production", app.spaceName());
       assertEquals("app-guid-0001", catalog.filter("CUSTOMER production 2024-03").get(0).guid());
       assertTrue(catalog.filter("customer missing").isEmpty());
-      assertThrows(IOException.class, () -> client(server, "wrong").load());
+      IOException rejected = assertThrows(IOException.class,
+          () -> client(server, "wrong").load());
+      assertTrue(rejected.getMessage().startsWith("UAA token request was rejected (HTTP 401)"),
+          rejected.getMessage());
+      assertFalse(rejected.getMessage().contains("wrong"));
     } finally {
       server.stop();
     }

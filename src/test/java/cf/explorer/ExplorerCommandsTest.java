@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,9 +62,7 @@ class ExplorerCommandsTest {
         worker::add,
         dispatch::add);
 
-    ShellState state = new ShellState(List.of(), commands, Function.identity(),
-        worker::add, dispatch::add);
-    state.setRootPage(catalogPage);
+    ShellState state = new ShellState(catalogPage, commands, worker::add, dispatch::add);
 
     // Before catalog loads: only refresh and quit are available
     type(state, "/");
@@ -139,9 +136,7 @@ class ExplorerCommandsTest {
         worker::add,
         dispatch::add);
 
-    ShellState state = new ShellState(List.of(), commands, Function.identity(),
-        worker::add, dispatch::add);
-    state.setRootPage(catalogPage);
+    ShellState state = new ShellState(catalogPage, commands, worker::add, dispatch::add);
 
     type(state, "/open");
     state.confirm();
@@ -168,9 +163,7 @@ class ExplorerCommandsTest {
         Runnable::run,
         Runnable::run);
 
-    ShellState state = new ShellState(List.of(), commands, Function.identity(),
-        Runnable::run, Runnable::run);
-    state.setRootPage(catalogPage);
+    ShellState state = new ShellState(catalogPage, commands, Runnable::run, Runnable::run);
 
     type(state, "/keystore");
     state.confirm();

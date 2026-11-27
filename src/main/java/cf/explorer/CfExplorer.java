@@ -1,3 +1,5 @@
+///usr/bin/env jbang "$0" "$@" ; exit $?
+
 //JAVA 17+
 
 //COMPILE_OPTIONS -encoding UTF-8
@@ -17,12 +19,13 @@
 //SOURCES catalog/CachedCatalogService.java
 //SOURCES catalog/CatalogCacheStore.java
 //SOURCES catalog/CloudFoundryCatalogClient.java
+//SOURCES catalog/CloudFoundryException.java
 //SOURCES config/EnvProcessor.java
 //SOURCES config/ExplorerConfig.java
-//SOURCES example/ExampleFeatures.java
 //SOURCES export/EnvExportService.java
 //SOURCES export/EnvFileWriter.java
 //SOURCES io/ClipboardSupport.java
+//SOURCES io/LogSetup.java
 //SOURCES keystore/KeystoreEntry.java
 //SOURCES keystore/KeystoreService.java
 //SOURCES model/ShellCommand.java
@@ -31,15 +34,16 @@
 //SOURCES model/ShellState.java
 //SOURCES ui/ApplicationCatalogPage.java
 //SOURCES ui/EnvExportPage.java
+//SOURCES ui/ErrorMessages.java
 //SOURCES ui/KeystoreViewPage.java
 //SOURCES ui/ShellView.java
-
-//FILES .cf-explorer.properties=../../../resources/.cf-explorer.properties
 
 package cf.explorer;
 
 import cf.explorer.config.EnvProcessor;
 import cf.explorer.config.ExplorerConfig;
+import cf.explorer.io.LogSetup;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -52,10 +56,21 @@ import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 import picocli.CommandLine.Spec;
 
+/**
+ * Command-line entry point shared by Maven and JBang. Every JBang directive for the application
+ * lives in this file; see {@code DependencyAlignmentTest}.
+ */
 @Command(name = "cf-explorer", mixinStandardHelpOptions = true,
     defaultValueProvider = PropertiesDefaultProvider.class,
-    description = "Interactive Cloud Foundry environment browser.")
+    version = "cf-explorer " + CfExplorer.VERSION,
+    description = "Interactive Cloud Foundry environment browser.",
+    footer = {"",
+        "Defaults can also be set in ~/.cf-explorer.properties using option names without",
+        "leading dashes, for example: cf-api-url=https://api.sys.example.com"})
 public class CfExplorer implements Callable<Integer> {
+  /** Kept in sync with the Maven project version by {@code DependencyAlignmentTest}. */
+  static final String VERSION = "0.1.0-SNAPSHOT";
+
   @Spec
   CommandSpec spec;
 
@@ -64,7 +79,7 @@ public class CfExplorer implements Callable<Integer> {
           + "Reads CF_*_<ENV> variables first and scopes local files to ~/.cf-explorer/<env>/.")
   String env;
 
-  @Option(names = "--cf-api-url", descriptionKey = "cf.api.url",
+  @Option(names = "--cf-api-url",
       defaultValue = "${CF_API_URL:-http://localhost:9090}",
       description = "Cloud Foundry API URL. Env: CF_API_URL[_<ENV>].")
   String cfApiUrl;
@@ -84,6 +99,12 @@ public class CfExplorer implements Callable<Integer> {
   @Option(names = "--cf-web-url", defaultValue = "${CF_WEB_URL:-http://localhost:9090}",
       description = "CF Apps Manager base URL. Env: CF_WEB_URL[_<ENV>].")
   String cfWebUrl;
+
+  @Option(names = "--skip-ssl-validation", negatable = true,
+      defaultValue = "${CF_SKIP_SSL_VALIDATION:-false}", fallbackValue = "true",
+      description = "Do not verify TLS certificates or host names (self-signed foundations). "
+          + "Env: CF_SKIP_SSL_VALIDATION[_<ENV>]. Default: false.")
+  boolean skipSslValidation;
 
   @Option(names = "--fresh",
       description = "Ignore local catalog cache and fetch fresh data from Cloud Foundry.")
@@ -132,7 +153,9 @@ public class CfExplorer implements Callable<Integer> {
       }
       return 1;
     }
-    showScreen(buildConfig());
+    ExplorerConfig config = buildConfig();
+    LogSetup.toFile(config.profileDir());
+    showScreen(config);
     return 0;
   }
 
@@ -157,6 +180,8 @@ public class CfExplorer implements Callable<Integer> {
             ExplorerConfig.DEFAULT_PASSWORD, systemProperties, environment),
         resolveOption(parseResult, "--cf-web-url", cfWebUrl, "CF_WEB_URL", suffix,
             ExplorerConfig.DEFAULT_URL, systemProperties, environment),
+        resolveFlag(parseResult, "--skip-ssl-validation", skipSslValidation,
+            "CF_SKIP_SSL_VALIDATION", suffix, systemProperties, environment),
         fresh,
         excludeKeys != null ? excludeKeys : List.of(ExplorerConfig.DEFAULT_EXCLUDE_KEY),
         postProcessors != null ? postProcessors : Map.of("SPRING_APPLICATION_JSON", EnvProcessor.JSON),
@@ -185,6 +210,17 @@ public class CfExplorer implements Callable<Integer> {
       }
     }
     return parsedValue != null && !parsedValue.isBlank() ? parsedValue : fallback;
+  }
+
+  private static boolean resolveFlag(ParseResult parseResult, String optionName,
+      boolean parsedValue, String baseVar, String envSuffix,
+      Function<String, String> systemProperties, Function<String, String> environment) {
+    if (parseResult != null && parseResult.hasMatchedOption(optionName)) {
+      return parsedValue;
+    }
+    String resolved = resolveOption(null, optionName, String.valueOf(parsedValue), baseVar,
+        envSuffix, String.valueOf(parsedValue), systemProperties, environment);
+    return Boolean.parseBoolean(resolved.trim().toLowerCase(Locale.ROOT));
   }
 
   void showScreen(ExplorerConfig config) throws Exception {

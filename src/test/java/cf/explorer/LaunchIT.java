@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -63,34 +64,17 @@ class LaunchIT {
       String catalog = "cf-explorer@http://127.0.0.1:" + server.getAddress().getPort()
           + "/jbang-catalog.json";
       run(empty, command("jbang", "--quiet", catalog));
-      assertTrue(requested.containsAll(Set.of(
-          "/jbang-catalog.json",
-          "/src/main/java/cf/explorer/CfExplorer.java",
-          "/src/main/java/cf/explorer/ExplorerCommands.java",
-          "/src/main/java/cf/explorer/ExplorerScreen.java",
-          "/src/main/java/cf/explorer/browser/AppsManagerUrl.java",
-          "/src/main/java/cf/explorer/browser/BrowserLauncher.java",
-          "/src/main/java/cf/explorer/catalog/ApplicationCatalog.java",
-          "/src/main/java/cf/explorer/catalog/CachedCatalogService.java",
-          "/src/main/java/cf/explorer/catalog/CatalogCacheStore.java",
-          "/src/main/java/cf/explorer/catalog/CloudFoundryCatalogClient.java",
-          "/src/main/java/cf/explorer/config/EnvProcessor.java",
-          "/src/main/java/cf/explorer/config/ExplorerConfig.java",
-          "/src/main/java/cf/explorer/example/ExampleFeatures.java",
-          "/src/main/java/cf/explorer/export/EnvExportService.java",
-          "/src/main/java/cf/explorer/export/EnvFileWriter.java",
-          "/src/main/java/cf/explorer/io/ClipboardSupport.java",
-          "/src/main/java/cf/explorer/keystore/KeystoreEntry.java",
-          "/src/main/java/cf/explorer/keystore/KeystoreService.java",
-          "/src/main/java/cf/explorer/model/ShellCommand.java",
-          "/src/main/java/cf/explorer/model/ShellCommands.java",
-          "/src/main/java/cf/explorer/model/ShellPage.java",
-          "/src/main/java/cf/explorer/model/ShellState.java",
-          "/src/main/java/cf/explorer/ui/ApplicationCatalogPage.java",
-          "/src/main/java/cf/explorer/ui/EnvExportPage.java",
-          "/src/main/java/cf/explorer/ui/KeystoreViewPage.java",
-          "/src/main/java/cf/explorer/ui/ShellView.java",
-          "/src/main/resources/.cf-explorer.properties")), requested.toString());
+      Set<String> expected = new HashSet<>();
+      expected.add("/jbang-catalog.json");
+      expected.add("/src/main/java/cf/explorer/CfExplorer.java");
+      for (String line : Files.readAllLines(
+          root.resolve("src/main/java/cf/explorer/CfExplorer.java"))) {
+        if (line.startsWith("//SOURCES ")) {
+          expected.add("/src/main/java/cf/explorer/" + line.substring(10).trim());
+        }
+      }
+      assertTrue(expected.size() > 2, "Entry point should declare //SOURCES");
+      assertTrue(requested.containsAll(expected), requested.toString());
     } finally {
       server.stop(0);
     }

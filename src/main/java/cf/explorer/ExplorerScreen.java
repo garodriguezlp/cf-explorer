@@ -15,14 +15,13 @@ import cf.explorer.ui.ShellView;
 import dev.tamboui.toolkit.app.ToolkitApp;
 import dev.tamboui.toolkit.element.Element;
 import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
+/** Wires configuration, services, and commands into the TamboUI application. */
 final class ExplorerScreen extends ToolkitApp {
   private final ExplorerConfig config;
   private final CachedCatalogService catalogService;
@@ -32,7 +31,8 @@ final class ExplorerScreen extends ToolkitApp {
   ExplorerScreen(ExplorerConfig config) {
     this.config = Objects.requireNonNull(config);
     CloudFoundryCatalogClient client = new CloudFoundryCatalogClient(
-        config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
+        config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword(),
+        config.skipSslValidation());
     this.catalogService = new CachedCatalogService(client, new CatalogCacheStore(config.cacheDir()));
     ClipboardSupport clipboard = ClipboardSupport.system();
     EnvExportService envExportService = new EnvExportService(
@@ -44,7 +44,7 @@ final class ExplorerScreen extends ToolkitApp {
     Executor worker = ForkJoinPool.commonPool();
     Consumer<Runnable> dispatch = action -> runner().runOnRenderThread(action);
     this.state = new ShellState(
-        List.of(),
+        catalog,
         ExplorerCommands.create(
             catalog,
             this::refreshCatalog,
@@ -54,10 +54,8 @@ final class ExplorerScreen extends ToolkitApp {
             keystoreService,
             worker,
             dispatch),
-        Function.identity(),
         worker,
         dispatch);
-    this.state.setRootPage(catalog);
   }
 
   @Override

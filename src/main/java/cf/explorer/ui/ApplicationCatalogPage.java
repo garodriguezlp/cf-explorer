@@ -1,5 +1,6 @@
 package cf.explorer.ui;
 
+import static dev.tamboui.toolkit.Toolkit.column;
 import static dev.tamboui.toolkit.Toolkit.list;
 import static dev.tamboui.toolkit.Toolkit.panel;
 import static dev.tamboui.toolkit.Toolkit.richText;
@@ -41,10 +42,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * Root page listing every application in the catalog, with a token filter, match highlighting,
+ * and a selection tracked by app GUID so it survives filtering and catalog refreshes.
+ */
 public final class ApplicationCatalogPage implements ShellPage {
   private static final Logger LOG = Logger.getLogger(ApplicationCatalogPage.class.getName());
   private ApplicationCatalog catalog;
   private boolean failed;
+  private String failureReason = "";
   private boolean refreshing;
   private long loadGeneration;
   private String filter = "";
@@ -94,9 +100,10 @@ public final class ApplicationCatalogPage implements ShellPage {
                       statusConsumer.accept("Catalog refreshed.");
                     }
                   } else if (keepPrevious && catalog != null) {
-                    statusConsumer.accept("Catalog refresh failed. Keeping previous catalog.");
+                    statusConsumer.accept("Catalog refresh failed: "
+                        + ErrorMessages.describe(error) + " Keeping previous catalog.");
                   } else {
-                    failed();
+                    failed(ErrorMessages.describe(error));
                   }
                 }
               });
@@ -110,7 +117,7 @@ public final class ApplicationCatalogPage implements ShellPage {
       if (keepPrevious && catalog != null) {
         statusConsumer.accept("Catalog refresh failed. Keeping previous catalog.");
       } else {
-        failed();
+        failed("The background worker is unavailable.");
       }
     }
   }
@@ -128,7 +135,13 @@ public final class ApplicationCatalogPage implements ShellPage {
   }
 
   public void failed() {
+    failed("");
+  }
+
+  /** Shows the failure screen with a user-safe reason. */
+  public void failed(String reason) {
     failed = true;
+    failureReason = Objects.requireNonNull(reason);
   }
 
   @Override
@@ -153,8 +166,15 @@ public final class ApplicationCatalogPage implements ShellPage {
   @Override
   public Element render() {
     if (failed) {
-      return panel(text(" Catalog loading failed. Check connection settings and try again."))
-          .title(" Error ").rounded().borderColor(Color.CYAN).fill();
+      List<Element> lines = new ArrayList<>();
+      lines.add(text(" Catalog loading failed.").fg(Color.LIGHT_RED).bold());
+      if (!failureReason.isBlank()) {
+        lines.add(text(" " + failureReason));
+      }
+      lines.add(text(""));
+      lines.add(text(" Check the connection settings, then run /refresh to retry.").dim());
+      return panel(column(lines.toArray(Element[]::new)))
+          .title(" Connection Error ").rounded().borderColor(Color.RED).fill();
     }
     if (catalog == null) {
       return panel(text(" Loading Cloud Foundry catalog..."))

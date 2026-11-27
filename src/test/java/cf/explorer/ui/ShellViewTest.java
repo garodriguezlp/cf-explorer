@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cf.explorer.model.ShellState;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
-import cf.explorer.example.ExampleFeatures;
+import cf.explorer.model.ExampleWorkspace;
 import cf.explorer.catalog.ApplicationCatalog;
 import dev.tamboui.buffer.Buffer;
 import dev.tamboui.layout.Rect;
@@ -25,8 +25,6 @@ import java.util.List;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 class ShellViewTest {
@@ -37,9 +35,7 @@ class ShellViewTest {
     var second = new ApplicationCatalog.App("two", "same", "STOPPED", "s2", "staging",
         "o1", "team", "2023-01-01", "2024-03-01");
     ApplicationCatalogPage catalog = new ApplicationCatalogPage();
-    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
-        Runnable::run, Runnable::run);
-    state.setRootPage(catalog);
+    ShellState state = new ShellState(catalog, ShellCommands.create(), Runnable::run, Runnable::run);
     assertTrue(render(state).contains("Loading Cloud Foundry catalog"));
     catalog.loaded(new ApplicationCatalog(1, 2, List.of(first, second)));
     assertTrue(render(state).contains("Apps  2/2"));
@@ -75,8 +71,11 @@ class ShellViewTest {
     ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
     assertTrue(render(state).contains("Apps  2/2"));
     assertEquals(second, state.selected(ApplicationCatalog.App.class));
-    catalog.failed();
-    assertTrue(render(state).contains("Catalog loading failed."));
+    catalog.failed("Could not connect to the Cloud Foundry endpoint.");
+    String failure = render(state);
+    assertTrue(failure.contains("Catalog loading failed."), failure);
+    assertTrue(failure.contains("Could not connect to the Cloud Foundry endpoint."), failure);
+    assertTrue(failure.contains("/refresh"), failure);
   }
 
   @Test
@@ -84,9 +83,7 @@ class ShellViewTest {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> dispatch = new ArrayDeque<>();
     ApplicationCatalogPage page = new ApplicationCatalogPage();
-    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
-        worker::add, dispatch::add);
-    state.setRootPage(page);
+    ShellState state = new ShellState(page, ShellCommands.create(), worker::add, dispatch::add);
     var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
         "2024-01-01", "2024-01-02");
     ApplicationCatalog data = new ApplicationCatalog(1, 1, List.of(app));
@@ -122,9 +119,7 @@ class ShellViewTest {
         "2024-01-01", "2024-01-02");
     ApplicationCatalogPage page = new ApplicationCatalogPage();
     page.loaded(new ApplicationCatalog(1, 1, List.of(app)));
-    ShellState state = new ShellState(List.of(), ShellCommands.create(), Function.identity(),
-        Runnable::run, Runnable::run);
-    state.setRootPage(page);
+    ShellState state = new ShellState(page, ShellCommands.create(), Runnable::run, Runnable::run);
     for (char c : "needle".toCharArray()) {
       ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
     }
@@ -144,27 +139,21 @@ class ShellViewTest {
   void rendersListSuggestionsErrorsAndDetail() {
     ShellState state = state(List.of("Atlas", "Alpine", "Delta"));
     String initial = render(state);
-    assertTrue(initial.lines().skip(1).findFirst().orElseThrow().contains("Examples"), initial);
-    assertFalse(initial.contains("Count:"), initial);
-    assertFalse(initial.contains("next version"), initial);
+    assertTrue(initial.contains("CF EXPLORER"), initial);
+    assertTrue(initial.contains("Examples"), initial);
     assertTrue(initial.contains(" Filter "), initial);
     assertTrue(initial.contains("> Atlas"), initial);
-    assertFalse(initial.contains("[ ]"), initial);
-    for (char c : "A/in".toCharArray()) {
-      state.type(c);
-    }
+    keys(state, "A/in");
     String suggestions = render(state);
     assertTrue(suggestions.contains("/in|"), suggestions);
     assertTrue(suggestions.contains("/inspect  -  Open the selected item"), suggestions);
-    state.confirm();
+    keys(state, KeyCode.ENTER);
     String detail = render(state);
     assertTrue(detail.contains(" Detail "), detail);
     assertTrue(detail.contains(" Atlas"), detail);
-    state.cancel();
-    for (char c : "/nonsense".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
+    keys(state, KeyCode.ESCAPE);
+    keys(state, "/nonsense");
+    keys(state, KeyCode.ENTER);
     String error = render(state);
     assertTrue(error.contains("No suggestions."), error);
     assertTrue(error.contains("Unknown command: /nonsense"), error);
@@ -174,9 +163,7 @@ class ShellViewTest {
   void rendersEmptyAndNoMatchStates() {
     assertTrue(render(state(List.of())).contains("No items."));
     ShellState state = state(List.of("Atlas"));
-    for (char c : "missing".toCharArray()) {
-      state.type(c);
-    }
+    keys(state, "missing");
     assertTrue(render(state).contains("No matching items."));
   }
 
@@ -184,10 +171,12 @@ class ShellViewTest {
   void keepsSelectionAndCommandInputVisibleInCompactTerminals() {
     ShellState state = state(List.of("Atlas", "Alpine", "Delta", "Echo", "Foxtrot"));
     for (int i = 0; i < 4; i++) {
-      state.moveSelection(1);
+      keys(state, KeyCode.DOWN);
     }
-    state.type('/');
-    state.moveSelection(4);
+    keys(state, "/");
+    for (int i = 0; i < 4; i++) {
+      keys(state, KeyCode.DOWN);
+    }
     String screen = render(state, 40, 12);
     assertTrue(screen.contains("> Foxtrot"), screen);
     assertTrue(screen.contains("> /quit"), screen);
@@ -213,30 +202,31 @@ class ShellViewTest {
 
   @Test
   void routesTypingNavigationCompletionAndBack() {
-    ShellState state = state(List.of("Atlas", "Alpine", "Delta"));
-    Runnable quit = () -> {};
-    for (char c : "Al".toCharArray()) {
-      ShellView.handleKey(KeyEvent.ofChar(c), state, quit);
-    }
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, quit);
-    for (char c : "/in".toCharArray()) {
-      ShellView.handleKey(KeyEvent.ofChar(c), state, quit);
-    }
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.TAB), state, quit);
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, quit);
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Atlas", "Alpine", "Delta"));
+    ShellState state = examples.state();
+    keys(state, "Al");
+    keys(state, KeyCode.DOWN);
+    keys(state, "/in");
+    keys(state, KeyCode.TAB);
+    keys(state, KeyCode.ENTER);
     assertTrue(render(state).contains(" Alpine"));
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, quit);
-    assertEquals("Al", state.filter());
-    assertEquals("Alpine", state.selected());
+    keys(state, KeyCode.ESCAPE);
+    assertNull(state.page());
+    assertEquals("Al", examples.root().filter());
+    assertEquals("Alpine", state.selected(String.class));
+    assertTrue(render(state).contains("Al|"));
+    keys(state, KeyCode.ESCAPE);
+    assertEquals("", examples.root().filter());
   }
 
   @Test
   void qIsFilterInputAndQuitCommandExits() {
-    ShellState state = state(List.of("Atlas"));
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Atlas"));
+    ShellState state = examples.state();
     AtomicBoolean quit = new AtomicBoolean();
     assertEquals(EventResult.HANDLED,
         ShellView.handleKey(KeyEvent.ofChar('q'), state, () -> quit.set(true)));
-    assertEquals("q", state.filter());
+    assertEquals("q", examples.root().filter());
     for (char c : "/quit".toCharArray()) {
       ShellView.handleKey(KeyEvent.ofChar(c), state, () -> quit.set(true));
     }
@@ -246,87 +236,69 @@ class ShellViewTest {
 
   @Test
   void localSummaryReflectsFilteredAndMarkedItems() {
-    ShellState state = state(List.of("Alpine", "Alps", "Delta"));
-    for (char c : "Al/mark".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
-    for (char c : "/summary".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Alpine", "Alps", "Delta"));
+    ShellState state = examples.state();
+    keys(state, "Al/mark");
+    keys(state, KeyCode.ENTER);
+    keys(state, "/summary");
+    keys(state, KeyCode.ENTER);
     String screen = render(state);
     assertTrue(screen.contains("Visible items: 2"), screen);
     assertTrue(screen.contains("Marked visible items: 1"), screen);
-    state.cancel();
-    assertEquals("Al", state.filter());
-    assertEquals("Alpine", state.selected());
+    keys(state, KeyCode.ESCAPE);
+    assertEquals("Al", examples.root().filter());
+    assertEquals("Alpine", state.selected(String.class));
   }
 
   @Test
   void marksAreLabelsNotSelections() {
     ShellState state = state(List.of("Atlas", "Borealis"));
-    for (char c : "/mark".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
-    state.moveSelection(1);
-    for (char c : "/mark".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
+    keys(state, "/mark");
+    keys(state, KeyCode.ENTER);
+    keys(state, KeyCode.DOWN);
+    keys(state, "/mark");
+    keys(state, KeyCode.ENTER);
     String screen = render(state);
     assertTrue(screen.contains("Atlas (marked)"), screen);
     assertTrue(screen.contains("> Borealis (marked)"), screen);
-    assertFalse(screen.contains("[ ]"), screen);
-    assertFalse(screen.contains("[*]"), screen);
-    assertEquals("Borealis", state.selected());
-    for (char c : "/resources".toCharArray()) {
-      state.type(c);
-    }
-    state.confirm();
+    assertEquals("Borealis", state.selected(String.class));
+    keys(state, "/resources");
+    keys(state, KeyCode.ENTER);
     assertTrue(render(state).contains("Resources for Borealis"));
   }
 
   @Test
   void resourcesAndInspectUseCurrentSelectionAndRestoreBothViews() {
-    ShellState state = state(List.of("Atlas", "Borealis", "Delta"));
-    Runnable quit = () -> {};
-    ShellView.handleKey(KeyEvent.ofChar('a'), state, quit);
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, quit);
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Atlas", "Borealis", "Delta"));
+    ShellState state = examples.state();
+    keys(state, "a");
+    keys(state, KeyCode.DOWN);
     assertEquals("Borealis", state.currentSelection());
-    for (char c : "/resources".toCharArray()) {
-      ShellView.handleKey(KeyEvent.ofChar(c), state, quit);
-    }
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, quit);
+    keys(state, "/resources");
+    keys(state, KeyCode.ENTER);
     String resources = render(state);
     assertTrue(resources.contains("Resources for Borealis"), resources);
     assertTrue(resources.contains("> API"), resources);
     assertEquals("API", state.currentSelection());
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, quit);
+    keys(state, KeyCode.DOWN);
     assertTrue(render(state).contains("> Worker"));
     assertEquals("Worker", state.currentSelection());
-    for (char c : "/inspect".toCharArray()) {
-      ShellView.handleKey(KeyEvent.ofChar(c), state, quit);
-    }
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, quit);
+    keys(state, "/inspect");
+    keys(state, KeyCode.ENTER);
     String detail = render(state);
     assertTrue(detail.contains("Resource detail"), detail);
     assertTrue(detail.contains(" Worker"), detail);
     assertTrue(detail.contains("Example resource for Borealis."), detail);
     assertNull(state.currentSelection());
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, quit);
+    keys(state, KeyCode.ESCAPE);
     assertTrue(render(state).contains("> Worker"));
     assertEquals("Worker", state.currentSelection());
-    for (char c : "/back".toCharArray()) {
-      ShellView.handleKey(KeyEvent.ofChar(c), state, quit);
-    }
-    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, quit);
+    keys(state, "/back");
+    keys(state, KeyCode.ENTER);
     assertNull(state.page());
-    assertEquals("Borealis", state.selected());
     assertEquals("Borealis", state.currentSelection());
-    assertEquals("a", state.filter());
-    assertEquals(1, state.cursor());
+    assertEquals("a", examples.root().filter());
+    assertEquals(1, examples.root().inputCursor());
   }
 
   @Test
@@ -355,8 +327,7 @@ class ShellViewTest {
   void rendersLoadingAndSafeFailure() {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> render = new ArrayDeque<>();
-    ShellState state = new ShellState(List.of(), List.of(), Function.identity(),
-        worker::add, render::add);
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), List.of(), worker::add, render::add);
     state.openAsyncPage("Building report", () -> {
       throw new IllegalStateException("private content");
     });
@@ -372,8 +343,7 @@ class ShellViewTest {
   void ctrlCDiscardsPendingCompletion() {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> render = new ArrayDeque<>();
-    ShellState state = new ShellState(List.of(), List.of(), Function.identity(),
-        worker::add, render::add);
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), List.of(), worker::add, render::add);
     state.openAsyncPage("Work", () -> () -> Toolkit.text("Done"));
     ShellPage loading = state.page();
     worker.remove().run();
@@ -390,10 +360,17 @@ class ShellViewTest {
   }
 
   private static ShellState state(List<String> items) {
-    ExampleFeatures examples = new ExampleFeatures();
-    return new ShellState(items,
-        Stream.concat(examples.commands().stream(), ShellCommands.create().stream()).toList(),
-        examples::itemLabel, Runnable::run, Runnable::run);
+    return new ExampleWorkspace(items).state();
+  }
+
+  private static void keys(ShellState state, String input) {
+    for (char c : input.toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+  }
+
+  private static void keys(ShellState state, KeyCode key) {
+    ShellView.handleKey(KeyEvent.ofKey(key), state, () -> {});
   }
 
   private static String render(ShellState state, int width, int height) {

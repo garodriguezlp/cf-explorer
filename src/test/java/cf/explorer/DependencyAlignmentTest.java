@@ -82,4 +82,18 @@ class DependencyAlignmentTest {
   private static String value(Element element, String name) {
     return element.getElementsByTagName(name).item(0).getTextContent().trim();
   }
+
+  @Test
+  void versionMatchesMavenProjectVersion() throws Exception {
+    Element project = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+        .parse(Path.of("pom.xml").toFile()).getDocumentElement();
+    NodeList children = project.getChildNodes();
+    String version = null;
+    for (int i = 0; i < children.getLength(); i++) {
+      if (children.item(i) instanceof Element element && element.getTagName().equals("version")) {
+        version = element.getTextContent().trim();
+      }
+    }
+    assertEquals(version, CfExplorer.VERSION);
+  }
 }

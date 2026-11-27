@@ -7,14 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cf.explorer.config.EnvProcessor;
 import cf.explorer.config.ExplorerConfig;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,16 +22,6 @@ import picocli.CommandLine;
 
 class CfExplorerTest {
   @TempDir Path home;
-
-  @Test
-  void bundlesTheFutureConfigurationPlaceholder() throws Exception {
-    try (InputStream resource = CfExplorer.class.getResourceAsStream("/.cf-explorer.properties")) {
-      assertNotNull(resource);
-      Properties properties = new Properties();
-      properties.load(resource);
-      assertTrue(properties.containsKey("cf.api.url"));
-    }
-  }
 
   @Test
   void readsPropertyDefaultsAndAllowsCommandLineOverrides() throws Exception {
@@ -47,12 +35,12 @@ class CfExplorerTest {
       assertEquals("https://system.example", parseUrl());
 
       Files.writeString(home.resolve(".cf-explorer.properties"),
-          "cf.api.url=https://configured.example\n");
+          "cf-api-url=https://configured.example\n");
       assertEquals("https://configured.example", parseUrl());
       assertEquals("https://cli.example", parseUrl("--cf-api-url", "https://cli.example"));
 
       Path custom = home.resolve("custom.properties");
-      Files.writeString(custom, "cf.api.url=https://custom.example\n");
+      Files.writeString(custom, "cf-api-url=https://custom.example\n");
       System.setProperty("picocli.defaults.cf-explorer.path", custom.toString());
       assertEquals("https://custom.example", parseUrl());
       Files.writeString(custom, "unrelated=value\n");
@@ -186,5 +174,28 @@ class CfExplorerTest {
 
     assertEquals(2, command.execute("--unknown"));
     assertTrue(error.toString().contains("--unknown"));
+  }
+
+  @Test
+  void skipSslValidationIsOffByDefaultAndResolvesPerProfile() {
+    Map<String, String> sysProps = Map.of("user.home", home.toString());
+
+    CfExplorer defaults = new CfExplorer();
+    new CommandLine(defaults).parseArgs();
+    assertFalse(defaults.buildConfig(sysProps::get, k -> null).skipSslValidation());
+
+    CfExplorer profile = new CfExplorer();
+    new CommandLine(profile).parseArgs("--env", "lab");
+    assertTrue(profile.buildConfig(sysProps::get,
+        Map.of("CF_SKIP_SSL_VALIDATION_LAB", "true")::get).skipSslValidation());
+
+    CfExplorer explicit = new CfExplorer();
+    new CommandLine(explicit).parseArgs("--env", "lab", "--no-skip-ssl-validation");
+    assertFalse(explicit.buildConfig(sysProps::get,
+        Map.of("CF_SKIP_SSL_VALIDATION_LAB", "true")::get).skipSslValidation());
+
+    CfExplorer flag = new CfExplorer();
+    new CommandLine(flag).parseArgs("--skip-ssl-validation");
+    assertTrue(flag.buildConfig(sysProps::get, k -> null).skipSslValidation());
   }
 }

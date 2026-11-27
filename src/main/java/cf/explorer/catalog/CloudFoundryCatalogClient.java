@@ -9,6 +9,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,14 +19,31 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
+/**
+ * Minimal Cloud Foundry v3 and UAA client built on {@link HttpClient}.
+ *
+ * <p>Authenticates with the password grant, caches the bearer token until shortly before it
+ * expires, retries once on HTTP 401, and loads organizations, spaces, and apps in parallel.
+ * Failures are reported as {@link CloudFoundryException} with messages that never include
+ * credentials or response bodies.
+ */
 public final class CloudFoundryCatalogClient {
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final long DEFAULT_TOKEN_TTL_SECONDS = 300L;
   private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30L;
 
-  private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-      .connectTimeout(Duration.ofSeconds(15)).build();
+  private static final String DISABLE_HOSTNAME_VERIFICATION =
+      "jdk.internal.httpclient.disableHostnameVerification";
+
+  private final HttpClient http;
   private final String uaaUrl;
   private final String apiUrl;
   private final String username;
@@ -46,10 +66,28 @@ public final class CloudFoundryCatalogClient {
   }
 
   public CloudFoundryCatalogClient(String uaaUrl, String apiUrl, String username, String password) {
+    this(uaaUrl, apiUrl, username, password, false);
+  }
+
+  /**
+   * Creates a client. When {@code skipSslValidation} is {@code true}, TLS certificates and host
+   * names are not verified, which is only appropriate for foundations with self-signed
+   * certificates.
+   */
+  public CloudFoundryCatalogClient(String uaaUrl, String apiUrl, String username, String password,
+      boolean skipSslValidation) {
     this.uaaUrl = Objects.requireNonNull(uaaUrl);
     this.apiUrl = Objects.requireNonNull(apiUrl);
     this.username = Objects.requireNonNull(username);
     this.password = Objects.requireNonNull(password);
+    HttpClient.Builder builder = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+        .connectTimeout(Duration.ofSeconds(15));
+    if (skipSslValidation) {
+      // The JDK client reads this flag once, when its first instance is created.
+      System.setProperty(DISABLE_HOSTNAME_VERIFICATION, "true");
+      builder.sslContext(trustAllContext());
+    }
+    this.http = builder.build();
   }
 
   public ApplicationCatalog load() throws IOException, InterruptedException {
@@ -58,10 +96,49 @@ public final class CloudFoundryCatalogClient {
 
   public CatalogSnapshot loadSnapshot() throws IOException, InterruptedException {
     String token = accessToken(false);
-    List<JsonNode> orgs = fetch("/v3/organizations", token);
-    List<JsonNode> spaces = fetch("/v3/spaces", token);
-    List<JsonNode> apps = fetch("/v3/apps", token);
-    return new CatalogSnapshot(orgs, spaces, apps);
+    ExecutorService pool = Executors.newFixedThreadPool(3, runnable -> {
+      Thread thread = new Thread(runnable, "cf-catalog-fetch");
+      thread.setDaemon(true);
+      return thread;
+    });
+    try {
+      CompletableFuture<List<JsonNode>> orgs = fetchAsync("/v3/organizations", token, pool);
+      CompletableFuture<List<JsonNode>> spaces = fetchAsync("/v3/spaces", token, pool);
+      CompletableFuture<List<JsonNode>> apps = fetchAsync("/v3/apps", token, pool);
+      return new CatalogSnapshot(await(orgs), await(spaces), await(apps));
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  private CompletableFuture<List<JsonNode>> fetchAsync(String path, String token,
+      ExecutorService pool) {
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return fetch(path, token);
+      } catch (IOException | InterruptedException ex) {
+        throw new CompletionException(ex);
+      }
+    }, pool);
+  }
+
+  private static List<JsonNode> await(CompletableFuture<List<JsonNode>> future)
+      throws IOException, InterruptedException {
+    try {
+      return future.join();
+    } catch (CompletionException ex) {
+      Throwable cause = ex.getCause();
+      if (cause instanceof IOException io) {
+        throw io;
+      }
+      if (cause instanceof InterruptedException interrupted) {
+        throw interrupted;
+      }
+      if (cause instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      throw ex;
+    }
   }
 
   public Map<String, String> fetchEnvironmentVariables(String appGuid)
@@ -77,7 +154,7 @@ public final class CloudFoundryCatalogClient {
       return Map.of();
     }
     if (!varNode.isObject()) {
-      throw new IOException("Invalid environment variables response");
+      throw new CloudFoundryException("Invalid environment variables response");
     }
     Map<String, String> result = new LinkedHashMap<>();
     for (Map.Entry<String, JsonNode> entry : varNode.properties()) {
@@ -125,7 +202,8 @@ public final class CloudFoundryCatalogClient {
           .timeout(Duration.ofSeconds(30))
           .header("Content-Type", "application/x-www-form-urlencoded")
           .POST(HttpRequest.BodyPublishers.ofString(form)).build();
-      JsonNode response = send(tokenRequest);
+      JsonNode response = parseJsonResponse(
+          http.send(tokenRequest, HttpResponse.BodyHandlers.ofString()), "UAA token request");
       String token = required(response, "access_token");
       long expiresIn = response.path("expires_in").isIntegralNumber()
           ? response.path("expires_in").asLong() : DEFAULT_TOKEN_TTL_SECONDS;
@@ -144,7 +222,7 @@ public final class CloudFoundryCatalogClient {
       String refreshed = accessToken(true);
       response = http.send(authorizedGet(path, refreshed), HttpResponse.BodyHandlers.ofString());
     }
-    return parseJsonResponse(response);
+    return parseJsonResponse(response, "Cloud Foundry API request");
   }
 
   private List<JsonNode> fetch(String path, String initialToken)
@@ -160,12 +238,12 @@ public final class CloudFoundryCatalogClient {
         token = accessToken(true);
         raw = http.send(authorizedGet(pagePath, token), HttpResponse.BodyHandlers.ofString());
       }
-      JsonNode response = parseJsonResponse(raw);
+      JsonNode response = parseJsonResponse(raw, "Cloud Foundry API request");
       JsonNode resources = response.get("resources");
       JsonNode pagination = response.get("pagination");
       if (resources == null || !resources.isArray() || pagination == null
           || !pagination.isObject() || !pagination.has("next")) {
-        throw new IOException("Invalid catalog response");
+        throw new CloudFoundryException("Invalid catalog response from " + path);
       }
       resources.forEach(all::add);
       if (pagination.get("next").isNull()) {
@@ -181,17 +259,24 @@ public final class CloudFoundryCatalogClient {
         .header("Authorization", "Bearer " + token).GET().build();
   }
 
-  private JsonNode send(HttpRequest request) throws IOException, InterruptedException {
-    return parseJsonResponse(http.send(request, HttpResponse.BodyHandlers.ofString()));
-  }
-
-  private static JsonNode parseJsonResponse(HttpResponse<String> response) throws IOException {
-    if (response.statusCode() < 200 || response.statusCode() >= 300) {
-      throw new IOException("HTTP request failed (" + response.statusCode() + ")");
+  private static JsonNode parseJsonResponse(HttpResponse<String> response, String operation)
+      throws IOException {
+    int status = response.statusCode();
+    if (status == 401 || status == 403) {
+      throw new CloudFoundryException(operation + " was rejected (HTTP " + status
+          + "). Check the username, password, and URLs.");
     }
-    JsonNode json = JSON.readTree(response.body());
+    if (status < 200 || status >= 300) {
+      throw new CloudFoundryException(operation + " failed (HTTP " + status + ").");
+    }
+    JsonNode json;
+    try {
+      json = JSON.readTree(response.body());
+    } catch (IOException ex) {
+      throw new CloudFoundryException(operation + " returned a non-JSON response.");
+    }
     if (json == null || !json.isObject()) {
-      throw new IOException("Invalid API response");
+      throw new CloudFoundryException(operation + " returned an unexpected response.");
     }
     return json;
   }
@@ -204,7 +289,7 @@ public final class CloudFoundryCatalogClient {
   private static String required(JsonNode node, String field) throws IOException {
     JsonNode value = node.get(field);
     if (value == null || !value.isTextual() || value.asText().isBlank()) {
-      throw new IOException("Invalid API response field: " + field);
+      throw new CloudFoundryException("Invalid API response field: " + field);
     }
     return value.asText();
   }
@@ -219,5 +304,27 @@ public final class CloudFoundryCatalogClient {
 
   private static String encode(String value) {
     return URLEncoder.encode(value, StandardCharsets.UTF_8);
+  }
+
+  private static SSLContext trustAllContext() {
+    TrustManager trustAll = new X509TrustManager() {
+      @Override
+      public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+
+      @Override
+      public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+
+      @Override
+      public X509Certificate[] getAcceptedIssuers() {
+        return new X509Certificate[0];
+      }
+    };
+    try {
+      SSLContext context = SSLContext.getInstance("TLS");
+      context.init(null, new TrustManager[] {trustAll}, new SecureRandom());
+      return context;
+    } catch (GeneralSecurityException ex) {
+      throw new IllegalStateException("Could not initialize TLS context", ex);
+    }
   }
 }

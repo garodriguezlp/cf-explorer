@@ -1,14 +1,13 @@
 # Copilot Instructions for cf-explorer
 
-This branch is a fresh implementation of cf-explorer. See `PLAN.md` for the
-phased roadmap; the original Cloud Foundry browser remains on `main`.
+Follow [AGENTS.md](../AGENTS.md). When reviewing changes, focus on:
 
-- Use Java 17 and keep Maven and JBang launches aligned.
-- Run `mvn verify` for unit, dependency alignment, and launch checks.
-- Keep the WireMock fixtures and `mock-server` alias for later integration work.
-- Prefer cohesive components, clear responsibilities, and composition.
-- Keep domain logic independent of UI and I/O; when a TUI is introduced,
-  perform UI state mutations on its render thread.
-- Favor maintainability and surgical changes over unnecessary abstractions.
-- Skip TLS-related security findings for this tool's threat model and minor
-  style nits that do not affect readability or maintainability.
+- JBang and Maven alignment: new sources listed in `//SOURCES`, dependencies identical in
+  `//DEPS` and `pom.xml`.
+- Render-thread safety: UI state changes only on the render thread; blocking work on the
+  worker.
+- Secret handling: no secrets, environment values, or raw response bodies in UI text,
+  logs, or file names.
+- TLS: trust-all must stay opt-in behind `--skip-ssl-validation`.
+
+Skip minor style nits that do not affect readability or maintainability.
