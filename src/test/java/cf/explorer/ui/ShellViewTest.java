@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.model.ExampleWorkspace;
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CatalogProgress;
 import dev.tamboui.buffer.Buffer;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
@@ -21,9 +23,13 @@ import dev.tamboui.toolkit.event.EventResult;
 import dev.tamboui.tui.event.KeyCode;
 import dev.tamboui.tui.event.KeyEvent;
 import dev.tamboui.tui.event.KeyModifiers;
+import java.time.Duration;
 import java.util.List;
 import java.util.ArrayDeque;
 import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -112,6 +118,91 @@ class ShellViewTest {
   }
 
   @Test
+  void catalogLoadingShowsPerResourceProgressAndEscCancels() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), worker::add, dispatch::add);
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    page.startLoading((CatalogProgress progress) -> {
+      progress.authenticated();
+      progress.completed(CatalogProgress.Resource.ORGANIZATIONS, 4);
+      progress.fetched(CatalogProgress.Resource.SPACES, 100, 400);
+      return new ApplicationCatalog(1, 1, List.of(app));
+    }, worker::add, dispatch::add, () -> !state.quitRequested());
+    String waiting = render(state);
+    assertTrue(waiting.contains("Loading Cloud Foundry catalog..."), waiting);
+    assertTrue(waiting.contains("Sign in        contacting UAA..."), waiting);
+    assertTrue(waiting.contains("Apps           waiting"), waiting);
+    assertTrue(waiting.contains("0%"), waiting);
+    assertTrue(waiting.contains("Press Esc to cancel."), waiting);
+
+    worker.remove().run();
+    for (int i = 0; i < 3; i++) {
+      dispatch.remove().run();
+    }
+    String progress = render(state);
+    assertTrue(progress.contains("\u2713 Organizations  4 found"), progress);
+    assertTrue(progress.contains("Spaces         100 of 400"), progress);
+    assertTrue(progress.contains("Apps           fetching..."), progress);
+    assertTrue(progress.contains("56%"), progress);
+
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    dispatch.remove().run();
+    String cancelled = render(state);
+    assertTrue(cancelled.contains("Catalog loading cancelled."), cancelled);
+    assertTrue(cancelled.contains("Run /refresh (Ctrl+R) to retry."), cancelled);
+    assertNull(state.currentSelection());
+    assertNull(page.activity());
+  }
+
+  @Test
+  void escCancelsARefreshButClearsTheFilterFirst() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), worker::add, dispatch::add);
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    var other = new ApplicationCatalog.App("two", "other", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    page.loaded(new ApplicationCatalog(1, 1, List.of(app)));
+    page.startRefresh(() -> new ApplicationCatalog(1, 1, List.of(app, other)), worker::add,
+        dispatch::add, () -> true, state::showStatus);
+    String refreshing = render(state);
+    assertTrue(refreshing.contains("refreshing 0%]"), refreshing);
+    assertEquals("Refreshing catalog...", state.statusActivity().label());
+
+    keys(state, "ap");
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertEquals("", page.inputValue());
+    assertTrue(page.activity() != null, "the first Esc clears the filter");
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertNull(page.activity());
+    assertEquals("Refresh cancelled. Keeping the current catalog.", state.status());
+    worker.remove().run();
+    dispatch.remove().run();
+    assertTrue(render(state).contains("Apps  1/1"));
+  }
+
+  @Test
+  void catalogEmptyStatesExplainWhatToDoNext() {
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), Runnable::run, Runnable::run);
+    page.loaded(new ApplicationCatalog(1, 1, List.of()));
+    String empty = render(state);
+    assertTrue(empty.contains("No apps."), empty);
+    assertTrue(empty.contains("Run /refresh (Ctrl+R) to reload."), empty);
+    page.loaded(new ApplicationCatalog(1, 1, List.of(new ApplicationCatalog.App("one", "app",
+        "STARTED", "s", "space", "o", "org", "2024-01-01", "2024-01-02"))));
+    keys(state, "zzz");
+    String noMatch = render(state);
+    assertTrue(noMatch.contains("No matching apps."), noMatch);
+    assertTrue(noMatch.contains("Press Esc to clear the filter."), noMatch);
+  }
+
+  @Test
   void catalogShowsMatchesInLongNamesAndIdentifiers() {
     var app = new ApplicationCatalog.App("unique-guid-987",
         "very-long-application-name-with-many-parts-and-a-needle-near-the-end",
@@ -146,7 +237,7 @@ class ShellViewTest {
     keys(state, "A/in");
     String suggestions = render(state);
     assertTrue(suggestions.contains("/in|"), suggestions);
-    assertTrue(suggestions.contains("/inspect  -  Open the selected item"), suggestions);
+    assertTrue(suggestions.contains("/inspect  Open the selected item"), suggestions);
     keys(state, KeyCode.ENTER);
     String detail = render(state);
     assertTrue(detail.contains(" Detail "), detail);
@@ -181,7 +272,7 @@ class ShellViewTest {
     assertTrue(screen.contains("> Foxtrot"), screen);
     assertTrue(screen.contains("> /quit"), screen);
     assertTrue(screen.contains(" /|"), screen);
-    assertTrue(screen.contains("Ctrl-C quit"), screen);
+    assertTrue(screen.contains("Ctrl+C quit"), screen);
   }
 
   @Test
@@ -340,6 +431,54 @@ class ShellViewTest {
   }
 
   @Test
+  void loadingPageAnimatesAndEscCancelsAndDiscardsTheLateResult() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> render = new ArrayDeque<>();
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), ShellCommands.create(),
+        worker::add, render::add);
+    state.openAsyncPage("Building report", () -> () -> Toolkit.text("Report"));
+    assertEquals("Building report", state.loading().label());
+    String screen = render(state);
+    assertTrue(screen.contains(" Working "), screen);
+    assertTrue(screen.contains("Press Esc to cancel."), screen);
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertNull(state.page());
+    assertNull(state.loading());
+    assertEquals("Cancelled: Building report.", state.status());
+    worker.remove().run();
+    render.remove().run();
+    assertNull(state.page());
+    assertTrue(render(state).contains("Root"));
+  }
+
+  @Test
+  void minimumWaitKeepsTheSpinnerUpForFastResults() throws InterruptedException {
+    BlockingQueue<Runnable> render = new LinkedBlockingQueue<>();
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), List.of(), Runnable::run,
+        render::add, Duration.ofMillis(200));
+    state.openAsyncPage("Work", () -> () -> Toolkit.text("Done"));
+    assertTrue(render.isEmpty(), "a fast result waits for the minimum display time");
+    Runnable apply = render.poll(5, TimeUnit.SECONDS);
+    assertTrue(state.loading().elapsed().toMillis() >= 200);
+    apply.run();
+    assertNull(state.loading());
+    assertTrue(render(state).contains("Done"));
+  }
+
+  @Test
+  void statusLineSpinsWhileProgressIsShown() {
+    ShellState state = state(List.of("Atlas"));
+    state.showProgress("Opening Atlas...");
+    assertEquals("Opening Atlas...", state.statusActivity().label());
+    String screen = render(state);
+    assertTrue(screen.contains(" Opening Atlas..."), screen);
+    char spinner = screen.charAt(screen.indexOf("Opening Atlas...") - 2);
+    assertTrue(spinner >= '\u2800' && spinner <= '\u28ff', screen);
+    state.showStatus("Opened Atlas.");
+    assertNull(state.statusActivity());
+  }
+
+  @Test
   void ctrlCDiscardsPendingCompletion() {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> render = new ArrayDeque<>();
@@ -353,6 +492,41 @@ class ShellViewTest {
     assertTrue(quit.get());
     assertTrue(state.quitRequested());
     assertEquals(loading, state.page());
+  }
+
+  @Test
+  void ctrlShortcutsRunFromFilterAndCommandViewWithoutChangingInput() {
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Atlas"));
+    ShellState state = examples.state();
+    AtomicBoolean quit = new AtomicBoolean();
+    keys(state, "xb");
+    assertEquals("xb", examples.root().filter());
+    assertEquals(EventResult.HANDLED, ShellView.handleKey(
+        KeyEvent.ofChar('b', KeyModifiers.CTRL), state, () -> quit.set(true)));
+    assertEquals("xb", examples.root().filter());
+    assertEquals("Command unavailable: /back", state.status());
+
+    keys(state, "/in");
+    ShellView.handleKey(KeyEvent.ofChar('x', KeyModifiers.CTRL), state, () -> quit.set(true));
+    assertNull(state.command());
+    assertTrue(quit.get());
+    assertTrue(state.quitRequested());
+  }
+
+  @Test
+  void textProducingChordsAndUnboundCtrlKeysAreNotShortcuts() {
+    ShellState state = state(List.of("Atlas"));
+    KeyEvent altGr = KeyEvent.builder().code(KeyCode.CHAR).character('x')
+        .modifiers(KeyModifiers.of(true, true, false)).text("\u00bb").build();
+    assertEquals(ShellCommand.NO_SHORTCUT, ShellView.shortcutKey(altGr, state));
+    assertEquals(ShellCommand.NO_SHORTCUT,
+        ShellView.shortcutKey(KeyEvent.ofChar('x', KeyModifiers.ALT), state));
+    assertEquals(ShellCommand.NO_SHORTCUT,
+        ShellView.shortcutKey(KeyEvent.ofChar('y', KeyModifiers.CTRL), state));
+    assertEquals(ShellCommand.NO_SHORTCUT, ShellView.shortcutKey(KeyEvent.ofChar('x'), state));
+    assertEquals('x', ShellView.shortcutKey(KeyEvent.ofChar('x', KeyModifiers.CTRL), state));
+    assertEquals('x', ShellView.shortcutKey(
+        KeyEvent.ofChar('X', KeyModifiers.of(true, false, true)), state));
   }
 
   private static String render(ShellState state) {

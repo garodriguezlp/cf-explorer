@@ -3,14 +3,19 @@ package cf.explorer.ui;
 import static dev.tamboui.toolkit.Toolkit.column;
 import static dev.tamboui.toolkit.Toolkit.list;
 import static dev.tamboui.toolkit.Toolkit.panel;
+import static dev.tamboui.toolkit.Toolkit.richText;
 import static dev.tamboui.toolkit.Toolkit.text;
 
+import cf.explorer.model.Activity;
 import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
 import dev.tamboui.style.Style;
 import dev.tamboui.terminal.Frame;
+import dev.tamboui.text.Line;
+import dev.tamboui.text.Span;
+import dev.tamboui.text.Text;
 import dev.tamboui.toolkit.element.Element;
 import dev.tamboui.toolkit.element.RenderContext;
 import dev.tamboui.toolkit.element.Size;
@@ -35,7 +40,8 @@ public final class ShellView {
     boolean compact = height < 16;
     List<Element> layout = new ArrayList<>();
     layout.add(text(" CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
-    layout.add(state.activePage().render());
+    Activity loading = state.loading();
+    layout.add(loading != null ? LoadingView.page(loading) : state.activePage().render());
 
     if (state.command() != null) {
       List<ShellCommand> suggestions = state.suggestions();
@@ -44,10 +50,12 @@ public final class ShellView {
         layout.add(compact ? empty : panel(empty).title(" Commands ")
             .rounded().borderColor(Color.LIGHT_CYAN).length(3));
       } else {
-        List<String> rows = suggestions.stream()
-            .map(suggestion -> "/" + suggestion.name() + "  -  " + suggestion.description())
-            .toList();
-        ListElement<?> commands = list(rows).highlightSymbol("> ")
+        int nameWidth = suggestions.stream().mapToInt(c -> c.name().length()).max().orElse(0);
+        int shortcutWidth = suggestions.stream().mapToInt(c -> c.shortcutLabel().length())
+            .max().orElse(0);
+        ListElement<?> commands = list().data(suggestions,
+                suggestion -> richText(suggestionRow(suggestion, nameWidth, shortcutWidth)))
+            .highlightSymbol("> ")
             .highlightStyle(Style.create().fg(Color.LIGHT_CYAN).bold())
             .selected(state.suggestionIndex()).autoScroll().focusable(false);
         if (compact) {
@@ -68,16 +76,51 @@ public final class ShellView {
         .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
         .rounded().borderColor(Color.LIGHT_CYAN).length(3));
     if (!state.status().isEmpty()) {
-      layout.add(text(" " + state.status()).fg(Color.LIGHT_YELLOW));
+      layout.add(statusLine(state));
     }
     if (compact) {
-      layout.add(text(" Esc back/cancel  |  Ctrl-C quit").fg(Color.GRAY));
+      layout.add(text(" Esc back/cancel  |  Ctrl+C quit").fg(Color.GRAY));
     } else {
       layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run")
           .fg(Color.GRAY));
-      layout.add(text(" Esc cancel/back  |  Ctrl-C quit").fg(Color.GRAY));
+      layout.add(text(" Esc cancel/back  |  Ctrl+C quit").fg(Color.GRAY));
     }
     return column(layout.toArray(Element[]::new));
+  }
+
+  /** The status message, led by a spinner and followed by elapsed time while work runs. */
+  private static Element statusLine(ShellState state) {
+    Activity activity = state.statusActivity();
+    if (activity == null) {
+      return text(" " + state.status()).fg(Color.LIGHT_YELLOW);
+    }
+    long seconds = activity.elapsed().toSeconds();
+    List<Span> spans = new ArrayList<>();
+    spans.add(Span.styled(" " + LoadingView.glyph(activity) + " ",
+        Style.create().fg(Color.LIGHT_CYAN)));
+    spans.add(Span.styled(state.status(), Style.create().fg(Color.LIGHT_YELLOW)));
+    if (seconds >= 1) {
+      spans.add(Span.styled("  " + LoadingView.shortDuration(activity.elapsed()),
+          Style.create().fg(Color.GRAY)));
+    }
+    return richText(Text.from(Line.from(spans)));
+  }
+
+  /** One command-view row: {@code /name  Ctrl+K  description}, with aligned columns. */
+  private static Text suggestionRow(ShellCommand command, int nameWidth, int shortcutWidth) {
+    List<Span> spans = new ArrayList<>();
+    spans.add(Span.raw("/" + pad(command.name(), nameWidth) + "  "));
+    if (shortcutWidth > 0) {
+      spans.add(Span.styled(pad(command.shortcutLabel(), shortcutWidth),
+          Style.create().fg(Color.LIGHT_MAGENTA)));
+      spans.add(Span.raw("  "));
+    }
+    spans.add(Span.raw(command.description()));
+    return Text.from(Line.from(spans));
+  }
+
+  private static String pad(String value, int width) {
+    return value + " ".repeat(Math.max(0, width - value.length()));
   }
 
   private static final class ShellLayout extends StyledElement<ShellLayout> {
@@ -103,18 +146,43 @@ public final class ShellView {
   }
 
   /**
-   * Routes a key event. Outside command mode the active page handles keys first, except {@code /}
-   * (which starts command entry) and Esc on opened pages (which navigates back). The root page
-   * receives Esc so it can clear its filter.
+   * Returns the registered shortcut letter for a {@code Ctrl+<letter>} chord, or
+   * {@link ShellCommand#NO_SHORTCUT}. Chords that produce text (AltGr on some layouts reports
+   * Ctrl+Alt) and Alt chords are typing, not shortcuts, so they keep reaching the inputs.
+   * {@link KeyEvent#isCharIgnoreCase} also honors the base-layout key that the Kitty keyboard
+   * protocol reports for non-Latin layouts.
+   */
+  static char shortcutKey(KeyEvent event, ShellState state) {
+    if (!event.hasCtrl() || event.hasAlt() || event.isTyping() || event.code() != KeyCode.CHAR) {
+      return ShellCommand.NO_SHORTCUT;
+    }
+    for (ShellCommand command : state.shortcutCommands()) {
+      if (event.isCharIgnoreCase(command.shortcut())) {
+        return command.shortcut();
+      }
+    }
+    return ShellCommand.NO_SHORTCUT;
+  }
+
+  /**
+   * Routes a key event. Registered {@code Ctrl+<letter>} shortcuts run first, from any page and
+   * from the command view. Outside command mode the active page handles keys next, except
+   * {@code /} (which starts command entry) and Esc on opened pages (which navigates back). The
+   * root page receives Esc so it can clear its filter.
    */
   static EventResult handleKey(KeyEvent event, ShellState state, Runnable quit) {
     if (!event.isPressOrRepeat()) {
       return EventResult.UNHANDLED;
     }
     boolean slash = event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/';
+    char shortcut = shortcutKey(event, state);
     if (event.isCtrlC()) {
       state.requestQuit();
       quit.run();
+    } else if (shortcut != ShellCommand.NO_SHORTCUT && state.runShortcut(shortcut)) {
+      if (state.quitRequested()) {
+        quit.run();
+      }
     } else if (state.command() == null && !slash
         && (state.page() == null || !event.isKey(KeyCode.ESCAPE))
         && state.activePage().handleKey(event) == EventResult.HANDLED) {

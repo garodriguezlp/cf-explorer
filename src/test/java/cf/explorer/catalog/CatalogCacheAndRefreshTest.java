@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -54,6 +55,14 @@ class CatalogCacheAndRefreshTest {
     ApplicationCatalog cached = devService.load(false);
     assertEquals(1, devCalls.get());
     assertEquals("dev-app-1", cached.apps().get(0).name());
+    List<String> reported = new ArrayList<>();
+    devService.load(false, new CatalogProgress() {
+      @Override public void completed(Resource resource, int count) {
+        reported.add(resource + " " + count);
+      }
+    });
+    assertEquals(List.of("ORGANIZATIONS 1", "SPACES 1", "APPS 1"), reported);
+    assertEquals(1, devCalls.get());
 
     // Separate profile is isolated
     ApplicationCatalog prod = prodService.load(false);

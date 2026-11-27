@@ -8,6 +8,8 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,6 +38,19 @@ class CloudFoundryCatalogClientTest {
       assertEquals("production", app.spaceName());
       assertEquals("app-guid-0001", catalog.filter("CUSTOMER production 2024-03").get(0).guid());
       assertTrue(catalog.filter("customer missing").isEmpty());
+      List<String> events = new CopyOnWriteArrayList<>();
+      client(server, "admin").loadSnapshot(new CatalogProgress() {
+        @Override public void authenticated() { events.add("auth"); }
+        @Override public void fetched(Resource resource, int fetched, int total) {
+          events.add(resource + " " + fetched + "/" + total);
+        }
+        @Override public void completed(Resource resource, int count) {
+          events.add(resource + " done " + count);
+        }
+      });
+      assertEquals("auth", events.get(0));
+      assertTrue(events.containsAll(List.of("ORGANIZATIONS 4/4", "ORGANIZATIONS done 4",
+          "SPACES 7/7", "SPACES done 7", "APPS 16/16", "APPS done 16")), events.toString());
       IOException rejected = assertThrows(IOException.class,
           () -> client(server, "wrong").load());
       assertTrue(rejected.getMessage().startsWith("UAA token request was rejected (HTTP 401)"),

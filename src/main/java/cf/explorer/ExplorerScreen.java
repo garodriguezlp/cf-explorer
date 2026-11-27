@@ -4,6 +4,7 @@ import cf.explorer.browser.BrowserLauncher;
 import cf.explorer.catalog.ApplicationCatalog;
 import cf.explorer.catalog.CachedCatalogService;
 import cf.explorer.catalog.CatalogCacheStore;
+import cf.explorer.catalog.CatalogProgress;
 import cf.explorer.catalog.CloudFoundryCatalogClient;
 import cf.explorer.config.ExplorerConfig;
 import cf.explorer.export.EnvExportService;
@@ -15,6 +16,7 @@ import cf.explorer.ui.ShellView;
 import dev.tamboui.toolkit.app.ToolkitApp;
 import dev.tamboui.toolkit.element.Element;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -23,9 +25,11 @@ import java.util.function.Consumer;
 
 /** Wires configuration, services, and commands into the TamboUI application. */
 final class ExplorerScreen extends ToolkitApp {
+  /** Shortest time a wait state stays up, so fast responses do not flicker. */
+  static final Duration MINIMUM_WAIT = Duration.ofMillis(350);
   private final ExplorerConfig config;
   private final CachedCatalogService catalogService;
-  private final ApplicationCatalogPage catalog = new ApplicationCatalogPage();
+  private final ApplicationCatalogPage catalog = new ApplicationCatalogPage(MINIMUM_WAIT);
   private final ShellState state;
 
   ExplorerScreen(ExplorerConfig config) {
@@ -55,7 +59,8 @@ final class ExplorerScreen extends ToolkitApp {
             worker,
             dispatch),
         worker,
-        dispatch);
+        dispatch,
+        MINIMUM_WAIT);
   }
 
   @Override
@@ -72,9 +77,9 @@ final class ExplorerScreen extends ToolkitApp {
     return ShellView.render(state, this::quit);
   }
 
-  private ApplicationCatalog loadInitialCatalog() {
+  private ApplicationCatalog loadInitialCatalog(CatalogProgress progress) {
     try {
-      return catalogService.load(config.fresh());
+      return catalogService.load(config.fresh(), progress);
     } catch (InterruptedException ex) {
       Thread.currentThread().interrupt();
       throw new CompletionException(ex);
@@ -83,9 +88,9 @@ final class ExplorerScreen extends ToolkitApp {
     }
   }
 
-  private ApplicationCatalog refreshCatalog() {
+  private ApplicationCatalog refreshCatalog(CatalogProgress progress) {
     try {
-      return catalogService.refresh();
+      return catalogService.refresh(progress);
     } catch (InterruptedException ex) {
       Thread.currentThread().interrupt();
       throw new CompletionException(ex);

@@ -44,6 +44,21 @@ public final class ExplorerCommands {
       KeystoreService keystoreService,
       Executor worker,
       Consumer<Runnable> dispatch) {
+    Objects.requireNonNull(refreshLoader);
+    return create(catalogPage, progress -> refreshLoader.get(), envExportService, cfWebUrl,
+        browserLauncher, keystoreService, worker, dispatch);
+  }
+
+  /** Registers the commands; {@code refreshLoader} reports progress to the catalog page. */
+  public static List<ShellCommand> create(
+      ApplicationCatalogPage catalogPage,
+      ApplicationCatalogPage.ProgressLoader refreshLoader,
+      EnvExportService envExportService,
+      String cfWebUrl,
+      BrowserLauncher browserLauncher,
+      KeystoreService keystoreService,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
     Objects.requireNonNull(catalogPage);
     Objects.requireNonNull(refreshLoader);
     Objects.requireNonNull(envExportService);
@@ -55,7 +70,8 @@ public final class ExplorerCommands {
 
     List<ShellCommand> commands = new ArrayList<>();
     commands.add(new ShellCommand(
-        "export-env",
+        "export",
+        'e',
         "Export selected app environment to a .env file",
         state -> state.selected(ApplicationCatalog.App.class) != null,
         state -> {
@@ -78,6 +94,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "open",
+        'o',
         "Open selected app in Apps Manager",
         state -> AppsManagerUrl.canBuild(state.selected(ApplicationCatalog.App.class)),
         state -> {
@@ -86,7 +103,7 @@ public final class ExplorerCommands {
             return;
           }
           String url = AppsManagerUrl.build(cfWebUrl, app);
-          state.showStatus("Opening " + app.name() + " in Apps Manager...");
+          state.showProgress("Opening " + app.name() + " in Apps Manager...");
           try {
             CompletableFuture.runAsync(() -> {
               try {
@@ -118,6 +135,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "keystore",
+        'k',
         "Export and inspect selected app JKS keystore",
         state -> state.selected(ApplicationCatalog.App.class) != null,
         state -> {
@@ -143,6 +161,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "refresh",
+        'r',
         "Reload catalog from Cloud Foundry",
         state -> state.page() == null,
         state -> catalogPage.startRefresh(

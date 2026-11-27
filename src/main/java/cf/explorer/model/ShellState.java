@@ -1,9 +1,11 @@
 package cf.explorer.model;
 
+import static dev.tamboui.toolkit.Toolkit.column;
 import static dev.tamboui.toolkit.Toolkit.panel;
 import static dev.tamboui.toolkit.Toolkit.text;
 
 import dev.tamboui.style.Color;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -30,9 +32,12 @@ public final class ShellState {
   private final List<ShellCommand> commands;
   private final Executor worker;
   private final Consumer<Runnable> dispatch;
+  private final Duration minimumWait;
   private final Deque<ShellPage> previousPages = new ArrayDeque<>();
   private ShellPage page;
   private ShellPage loadingPage;
+  private Activity loadingActivity;
+  private Activity statusActivity;
   private String command;
   private int cursor;
   private int suggestionIndex;
@@ -41,12 +46,27 @@ public final class ShellState {
 
   public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
       Consumer<Runnable> dispatch) {
+    this(rootPage, commands, worker, dispatch, Duration.ZERO);
+  }
+
+  /**
+   * Creates the shell. Async pages show their wait state for at least {@code minimumWait}, so a
+   * fast response does not flash a spinner for a single frame.
+   */
+  public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
+      Consumer<Runnable> dispatch, Duration minimumWait) {
+    this.minimumWait = Objects.requireNonNull(minimumWait);
     this.rootPage = Objects.requireNonNull(rootPage);
     this.commands = List.copyOf(commands);
     this.worker = Objects.requireNonNull(worker);
     this.dispatch = Objects.requireNonNull(dispatch);
     if (commands.stream().map(ShellCommand::name).distinct().count() != commands.size()) {
       throw new IllegalArgumentException("Duplicate command name");
+    }
+    List<Character> shortcuts = commands.stream().filter(ShellCommand::hasShortcut)
+        .map(ShellCommand::shortcut).toList();
+    if (shortcuts.stream().distinct().count() != shortcuts.size()) {
+      throw new IllegalArgumentException("Duplicate command shortcut");
     }
   }
 
@@ -66,6 +86,26 @@ public final class ShellState {
     return Math.max(0, Math.min(suggestionIndex, suggestions().size() - 1));
   }
   public String status() { return status; }
+
+  /** The async page being loaded, or {@code null} when no opened page is waiting. */
+  public Activity loading() {
+    return loadingPage != null && page == loadingPage ? loadingActivity : null;
+  }
+
+  /**
+   * The background work described by the status line, or {@code null}. The status line animates
+   * while its message still describes running work: a {@link #showProgress} message, or the
+   * activity of the active or root page.
+   */
+  public Activity statusActivity() {
+    for (Activity candidate : new Activity[] {statusActivity, activePage().activity(),
+        rootPage.activity()}) {
+      if (candidate != null && candidate.label().equals(status)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
   public boolean quitRequested() { return quit; }
 
   public List<ShellCommand> suggestions() {
@@ -164,22 +204,60 @@ public final class ShellState {
         : suggestions.get(Math.min(suggestionIndex, suggestions.size() - 1));
     if (chosen == null) {
       status = "Unknown command: /" + command;
-    } else if (!chosen.available().test(this)) {
-      status = "Command unavailable: /" + chosen.name();
     } else {
-      status = "";
-      command = null;
-      cursor = 0;
-      try {
-        chosen.execute().accept(this);
-      } catch (RuntimeException ex) {
-        logFailure("Command /" + chosen.name(), ex);
-        status = "Command failed: /" + chosen.name();
-      }
+      run(chosen);
     }
   }
 
-  public void showStatus(String message) { status = Objects.requireNonNull(message); }
+  /** Commands with a global {@code Ctrl+<letter>} shortcut, in registration order. */
+  public List<ShellCommand> shortcutCommands() {
+    return commands.stream().filter(ShellCommand::hasShortcut).toList();
+  }
+
+  /**
+   * Runs the command bound to {@code Ctrl+<key>} from any page, closing the command view first.
+   * Returns {@code false} when no command uses that shortcut.
+   */
+  public boolean runShortcut(char key) {
+    char normalized = Character.toLowerCase(key);
+    ShellCommand chosen = commands.stream().filter(ShellCommand::hasShortcut)
+        .filter(candidate -> candidate.shortcut() == normalized).findFirst().orElse(null);
+    if (chosen == null) {
+      return false;
+    }
+    command = null;
+    cursor = 0;
+    suggestionIndex = 0;
+    run(chosen);
+    return true;
+  }
+
+  private void run(ShellCommand chosen) {
+    if (!chosen.available().test(this)) {
+      status = "Command unavailable: /" + chosen.name();
+      return;
+    }
+    status = "";
+    command = null;
+    cursor = 0;
+    try {
+      chosen.execute().accept(this);
+    } catch (RuntimeException ex) {
+      logFailure("Command /" + chosen.name(), ex);
+      status = "Command failed: /" + chosen.name();
+    }
+  }
+
+  public void showStatus(String message) {
+    status = Objects.requireNonNull(message);
+    statusActivity = null;
+  }
+
+  /** Shows {@code message} with a status-line spinner until the next status replaces it. */
+  public void showProgress(String message) {
+    status = Objects.requireNonNull(message);
+    statusActivity = Activity.start(message);
+  }
 
   public void openPage(ShellPage next) {
     Objects.requireNonNull(next);
@@ -190,8 +268,14 @@ public final class ShellState {
     page = next;
   }
 
+  /** Returns to the previous page. Leaving a loading page cancels it; its result is dropped. */
   public void back() {
+    Activity cancelled = loading();
+    if (cancelled != null) {
+      showStatus("Cancelled: " + cancelled.label() + ".");
+    }
     loadingPage = null;
+    loadingActivity = null;
     page = previousPages.poll();
   }
 
@@ -200,6 +284,7 @@ public final class ShellState {
   /**
    * Opens a loading page, runs {@code work} on the worker, and replaces the loading page with the
    * result on the render thread. The result is discarded if the user navigated away or quit.
+   * The view animates the wait using {@link #loading()}.
    */
   public void openAsyncPage(String label, Supplier<? extends ShellPage> work) {
     Objects.requireNonNull(label);
@@ -208,32 +293,42 @@ public final class ShellState {
         .title(" Loading ").rounded().borderColor(Color.CYAN).fill();
     openPage(loading);
     loadingPage = loading;
+    Activity activity = Activity.start(label);
+    loadingActivity = activity;
     try {
       CompletableFuture.supplyAsync(() -> Objects.requireNonNull(work.get()), worker)
           .whenComplete((result, error) -> {
             if (error != null) {
               logFailure(label, error);
             }
-            try {
-              dispatch.accept(() -> {
-                if (page == loading && !quit) {
-                  loadingPage = null;
-                  page = error == null ? result : failurePage(label);
-                }
-              });
-            } catch (RuntimeException ex) {
-              logFailure("Render dispatch", ex);
-            }
+            activity.afterAtLeast(minimumWait, () -> {
+              try {
+                dispatch.accept(() -> {
+                  if (page == loading && !quit) {
+                    loadingPage = null;
+                    loadingActivity = null;
+                    page = error == null ? result : failurePage(label);
+                  }
+                });
+              } catch (RuntimeException ex) {
+                logFailure("Render dispatch", ex);
+              }
+            });
           });
     } catch (RejectedExecutionException ex) {
       logFailure(label, ex);
       loadingPage = null;
+      loadingActivity = null;
       page = failurePage(label);
     }
   }
 
   private static ShellPage failurePage(String label) {
-    return () -> panel(text(" " + label + " failed."))
+    return () -> panel(column(
+        text(" " + label + " failed.").fg(Color.LIGHT_RED).bold(),
+        text(" See cf-explorer.log for the failure type."),
+        text(""),
+        text(" Press Esc or /back to return.").dim()))
         .title(" Error ").rounded().borderColor(Color.RED).fill();
   }
 

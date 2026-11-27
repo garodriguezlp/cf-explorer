@@ -1,12 +1,15 @@
 package cf.explorer.ui;
 
 import static dev.tamboui.toolkit.Toolkit.column;
+import static dev.tamboui.toolkit.Toolkit.gauge;
 import static dev.tamboui.toolkit.Toolkit.list;
 import static dev.tamboui.toolkit.Toolkit.panel;
 import static dev.tamboui.toolkit.Toolkit.richText;
 import static dev.tamboui.toolkit.Toolkit.text;
 
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CatalogProgress;
+import cf.explorer.model.Activity;
 import cf.explorer.model.ShellPage;
 import dev.tamboui.style.Color;
 import dev.tamboui.style.Style;
@@ -15,6 +18,7 @@ import dev.tamboui.terminal.Frame;
 import dev.tamboui.text.Line;
 import dev.tamboui.text.Span;
 import dev.tamboui.text.Text;
+import dev.tamboui.toolkit.Toolkit;
 import dev.tamboui.toolkit.element.Element;
 import dev.tamboui.toolkit.element.RenderContext;
 import dev.tamboui.toolkit.element.Size;
@@ -22,12 +26,16 @@ import dev.tamboui.toolkit.element.StyledElement;
 import dev.tamboui.toolkit.event.EventResult;
 import dev.tamboui.tui.event.KeyCode;
 import dev.tamboui.tui.event.KeyEvent;
+import dev.tamboui.widgets.spinner.SpinnerStyle;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -45,29 +53,66 @@ import java.util.stream.Collectors;
 /**
  * Root page listing every application in the catalog, with a token filter, match highlighting,
  * and a selection tracked by app GUID so it survives filtering and catalog refreshes.
+ *
+ * <p>While the catalog loads, the page shows a per-resource checklist and a gauge fed by
+ * {@link CatalogProgress}. Esc cancels the initial load or a refresh; the late result is dropped.
  */
 public final class ApplicationCatalogPage implements ShellPage {
   private static final Logger LOG = Logger.getLogger(ApplicationCatalogPage.class.getName());
+  private static final String LOADING_LABEL = "Loading Cloud Foundry catalog...";
+  private static final String REFRESHING_LABEL = "Refreshing catalog...";
+  private final Duration minimumWait;
   private ApplicationCatalog catalog;
   private boolean failed;
+  private boolean cancelled;
   private String failureReason = "";
   private boolean refreshing;
   private long loadGeneration;
+  private Activity activity;
+  private LoadProgress progress = new LoadProgress();
+  private Consumer<String> refreshStatus = message -> {};
   private String filter = "";
   private int cursor;
   private String selectedGuid;
 
+  /** Loads a catalog while reporting progress; runs on the worker. */
+  @FunctionalInterface
+  public interface ProgressLoader {
+    ApplicationCatalog load(CatalogProgress progress);
+  }
+
+  public ApplicationCatalogPage() {
+    this(Duration.ZERO);
+  }
+
+  /** Creates the page; loading states stay up for at least {@code minimumWait}. */
+  public ApplicationCatalogPage(Duration minimumWait) {
+    this.minimumWait = Objects.requireNonNull(minimumWait);
+  }
+
   public void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
       Consumer<Runnable> dispatch, BooleanSupplier active) {
+    Objects.requireNonNull(load);
+    startLoading(progress -> load.get(), worker, dispatch, active);
+  }
+
+  public void startLoading(ProgressLoader load, Executor worker, Consumer<Runnable> dispatch,
+      BooleanSupplier active) {
     startLoading(load, worker, dispatch, active, false, message -> {});
   }
 
   public void startRefresh(Supplier<ApplicationCatalog> load, Executor worker,
       Consumer<Runnable> dispatch, BooleanSupplier active, Consumer<String> statusConsumer) {
+    Objects.requireNonNull(load);
+    startRefresh(progress -> load.get(), worker, dispatch, active, statusConsumer);
+  }
+
+  public void startRefresh(ProgressLoader load, Executor worker, Consumer<Runnable> dispatch,
+      BooleanSupplier active, Consumer<String> statusConsumer) {
     startLoading(load, worker, dispatch, active, catalog != null, statusConsumer);
   }
 
-  private void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
+  private void startLoading(ProgressLoader load, Executor worker,
       Consumer<Runnable> dispatch, BooleanSupplier active, boolean keepPrevious,
       Consumer<String> statusConsumer) {
     Objects.requireNonNull(load);
@@ -76,44 +121,64 @@ public final class ApplicationCatalogPage implements ShellPage {
     Objects.requireNonNull(active);
     Objects.requireNonNull(statusConsumer);
     long generation = ++loadGeneration;
+    Activity started = Activity.start(keepPrevious ? REFRESHING_LABEL : LOADING_LABEL);
+    activity = started;
+    progress = new LoadProgress();
+    refreshStatus = statusConsumer;
+    cancelled = false;
     if (!keepPrevious) {
       catalog = null;
       failed = false;
       refreshing = false;
     } else {
       refreshing = true;
-      statusConsumer.accept("Refreshing catalog...");
+      statusConsumer.accept(REFRESHING_LABEL);
     }
+    CatalogProgress reporter = progress.reporter(update -> {
+      try {
+        dispatch.accept(() -> {
+          if (generation == loadGeneration) {
+            update.run();
+          }
+        });
+      } catch (RuntimeException ex) {
+        logFailure("Render dispatch", ex);
+      }
+    });
     try {
-      CompletableFuture.supplyAsync(() -> Objects.requireNonNull(load.get()), worker)
+      CompletableFuture.supplyAsync(() -> Objects.requireNonNull(load.load(reporter)), worker)
           .whenComplete((result, error) -> {
             if (error != null) {
               logFailure(keepPrevious ? "Catalog refresh" : "Catalog loading", error);
             }
-            try {
-              dispatch.accept(() -> {
-                if (active.getAsBoolean() && generation == loadGeneration) {
-                  refreshing = false;
-                  if (error == null) {
-                    loaded(result);
-                    if (keepPrevious) {
-                      statusConsumer.accept("Catalog refreshed.");
+            started.afterAtLeast(minimumWait, () -> {
+              try {
+                dispatch.accept(() -> {
+                  if (active.getAsBoolean() && generation == loadGeneration) {
+                    refreshing = false;
+                    activity = null;
+                    if (error == null) {
+                      loaded(result);
+                      if (keepPrevious) {
+                        statusConsumer.accept("Catalog refreshed.");
+                      }
+                    } else if (keepPrevious && catalog != null) {
+                      statusConsumer.accept("Catalog refresh failed: "
+                          + ErrorMessages.describe(error) + " Keeping previous catalog.");
+                    } else {
+                      failed(ErrorMessages.describe(error));
                     }
-                  } else if (keepPrevious && catalog != null) {
-                    statusConsumer.accept("Catalog refresh failed: "
-                        + ErrorMessages.describe(error) + " Keeping previous catalog.");
-                  } else {
-                    failed(ErrorMessages.describe(error));
                   }
-                }
-              });
-            } catch (RuntimeException ex) {
-              logFailure("Render dispatch", ex);
-            }
+                });
+              } catch (RuntimeException ex) {
+                logFailure("Render dispatch", ex);
+              }
+            });
           });
     } catch (RejectedExecutionException ex) {
       logFailure(keepPrevious ? "Catalog refresh" : "Catalog loading", ex);
       refreshing = false;
+      activity = null;
       if (keepPrevious && catalog != null) {
         statusConsumer.accept("Catalog refresh failed. Keeping previous catalog.");
       } else {
@@ -145,6 +210,29 @@ public final class ApplicationCatalogPage implements ShellPage {
   }
 
   @Override
+  public Activity activity() {
+    return activity;
+  }
+
+  /**
+   * Cancels the running load. An initial load leaves a cancelled screen with a retry hint; a
+   * refresh keeps the current catalog. The worker result is ignored when it arrives.
+   */
+  public void cancelLoading() {
+    if (activity == null) {
+      return;
+    }
+    loadGeneration++;
+    activity = null;
+    if (refreshing) {
+      refreshing = false;
+      refreshStatus.accept("Refresh cancelled. Keeping the current catalog.");
+    } else if (catalog == null && !failed) {
+      cancelled = true;
+    }
+  }
+
+  @Override
   public ApplicationCatalog.App selected() {
     if (catalog == null || selectedGuid == null) {
       return null;
@@ -172,24 +260,78 @@ public final class ApplicationCatalogPage implements ShellPage {
         lines.add(text(" " + failureReason));
       }
       lines.add(text(""));
-      lines.add(text(" Check the connection settings, then run /refresh to retry.").dim());
+      lines.add(text(" Check the connection settings, then run /refresh (Ctrl+R) to retry.").dim());
       return panel(column(lines.toArray(Element[]::new)))
           .title(" Connection Error ").rounded().borderColor(Color.RED).fill();
     }
+    if (cancelled && catalog == null) {
+      return panel(column(
+          text(" Catalog loading cancelled.").fg(Color.LIGHT_YELLOW).bold(),
+          text(""),
+          text(" Run /refresh (Ctrl+R) to retry.").dim()))
+          .title(" Cancelled ").rounded().borderColor(Color.YELLOW).fill();
+    }
     if (catalog == null) {
-      return panel(text(" Loading Cloud Foundry catalog..."))
-          .title(" Loading ").rounded().borderColor(Color.CYAN).fill();
+      return activity == null
+          ? panel(text(" " + LOADING_LABEL)).title(" Loading ").rounded()
+              .borderColor(Color.CYAN).fill()
+          : loadingPanel(activity);
     }
     return new CatalogLayout().fill();
+  }
+
+  /** Initial-load screen: animated title, per-resource checklist, gauge, and cancel hint. */
+  private Element loadingPanel(Activity loading) {
+    List<Element> lines = new ArrayList<>();
+    lines.add(text(""));
+    lines.add(Toolkit.row(text(" "), LoadingView.spinnerFor(loading, SpinnerStyle.BOUNCING_BAR),
+        text(" "), LoadingView.wave(loading, LOADING_LABEL)));
+    lines.add(text(""));
+    lines.add(step(loading, "Sign in", progress.signedIn(),
+        progress.signedIn() ? "done" : "contacting UAA..."));
+    for (CatalogProgress.Resource resource : CatalogProgress.Resource.values()) {
+      lines.add(step(loading, resource.label(), progress.done(resource),
+          progress.detail(resource)));
+    }
+    lines.add(text(""));
+    int percent = progress.percent();
+    lines.add(Toolkit.row(text(" "), gauge(percent / 100.0).useUnicode(true)
+        .gaugeColor(Color.CYAN).label(percent + "%").length(40), text("")).length(1));
+    lines.add(text(""));
+    lines.add(text(" " + LoadingView.elapsedLabel(loading.elapsed())
+        + "  |  Press Esc to cancel.").dim());
+    if (loading.elapsed().compareTo(LoadingView.SLOW_AFTER) >= 0) {
+      lines.add(text(" Still working. Large foundations can take a while.")
+          .fg(Color.LIGHT_YELLOW));
+    }
+    return panel(column(lines.toArray(Element[]::new)))
+        .title(" Loading ").rounded().borderColor(Color.CYAN).fill();
+  }
+
+  private Element step(Activity loading, String label, boolean done, String detail) {
+    boolean inFlight = !done && (progress.signedIn() || "Sign in".equals(label));
+    Span mark = done ? Span.styled("\u2713", Style.create().fg(Color.LIGHT_GREEN))
+        : inFlight ? Span.styled(LoadingView.glyph(loading), Style.create().fg(Color.LIGHT_CYAN))
+        : Span.styled("\u00b7", Style.create().fg(Color.GRAY));
+    return richText(Text.from(Line.from(Span.raw("   "), mark,
+        Span.raw(" " + String.format("%-15s", label)),
+        Span.styled(detail, done ? Style.create() : Style.create().fg(Color.GRAY)))));
   }
 
   private Element renderCatalog(int width) {
     List<ApplicationCatalog.App> visible = catalog.filter(filter);
     String title = " Apps  " + visible.size() + "/" + catalog.apps().size()
         + "  Orgs " + catalog.organizations() + "  Spaces " + catalog.spaces()
-        + (refreshing ? "  [refreshing...] " : " ");
+        + (refreshing && activity != null
+            ? "  [" + LoadingView.glyph(activity) + " refreshing " + progress.percent() + "%] "
+            : " ");
     if (visible.isEmpty()) {
-      return panel(text(filter.isBlank() ? " No apps." : " No matching apps.").dim())
+      Element empty = filter.isBlank()
+          ? column(text(" No apps."),
+              text(" This user can't see any apps yet. Run /refresh (Ctrl+R) to reload.").dim())
+          : column(text(" No matching apps."),
+              text(" Press Esc to clear the filter.").dim());
+      return panel(empty)
           .title(title).rounded().borderColor(Color.CYAN).fill();
     }
     int selected = 0;
@@ -223,6 +365,11 @@ public final class ApplicationCatalogPage implements ShellPage {
 
   @Override
   public EventResult handleKey(KeyEvent event) {
+    boolean escape = event.isKey(KeyCode.ESCAPE);
+    if (escape && activity != null && (catalog == null || filter.isEmpty())) {
+      cancelLoading();
+      return EventResult.HANDLED;
+    }
     if (catalog == null || failed) {
       return EventResult.HANDLED;
     }
@@ -357,5 +504,73 @@ public final class ApplicationCatalogPage implements ShellPage {
 
   private static String date(String value) {
     return value != null && value.length() >= 10 ? value.substring(0, 10) : "-";
+  }
+
+  /**
+   * Catalog load progress, mutated only on the render thread. {@link #reporter} turns fetch-thread
+   * callbacks into render-thread updates.
+   */
+  private static final class LoadProgress {
+    private final Map<CatalogProgress.Resource, int[]> counts =
+        new EnumMap<>(CatalogProgress.Resource.class);
+    private final Map<CatalogProgress.Resource, Boolean> completed =
+        new EnumMap<>(CatalogProgress.Resource.class);
+    private boolean authenticated;
+
+    CatalogProgress reporter(Consumer<Runnable> onRenderThread) {
+      return new CatalogProgress() {
+        @Override
+        public void authenticated() {
+          onRenderThread.accept(() -> authenticated = true);
+        }
+
+        @Override
+        public void fetched(Resource resource, int fetched, int total) {
+          onRenderThread.accept(() -> counts.put(resource, new int[] {fetched, total}));
+        }
+
+        @Override
+        public void completed(Resource resource, int count) {
+          onRenderThread.accept(() -> {
+            counts.put(resource, new int[] {count, count});
+            completed.put(resource, true);
+          });
+        }
+      };
+    }
+
+    /** Signed in, or past it: a cache hit reports resources without signing in. */
+    boolean signedIn() {
+      return authenticated || !counts.isEmpty();
+    }
+
+    boolean done(CatalogProgress.Resource resource) {
+      return completed.getOrDefault(resource, false);
+    }
+
+    String detail(CatalogProgress.Resource resource) {
+      int[] count = counts.get(resource);
+      if (done(resource)) {
+        return count[0] + " found";
+      }
+      if (count != null) {
+        return count[1] > 0 ? count[0] + " of " + count[1] : count[0] + " so far";
+      }
+      return signedIn() ? "fetching..." : "waiting";
+    }
+
+    /** Sign-in plus the three resources, each worth a quarter; partial pages count fractionally. */
+    int percent() {
+      double steps = signedIn() ? 1 : 0;
+      for (CatalogProgress.Resource resource : CatalogProgress.Resource.values()) {
+        int[] count = counts.get(resource);
+        if (done(resource)) {
+          steps += 1;
+        } else if (count != null && count[1] > 0) {
+          steps += Math.min(1.0, (double) count[0] / count[1]);
+        }
+      }
+      return (int) Math.round(steps * 100 / (CatalogProgress.Resource.values().length + 1));
+    }
   }
 }

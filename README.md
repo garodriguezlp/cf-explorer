@@ -71,16 +71,20 @@ The mock listens on `http://localhost:9090` and accepts `admin` / `admin`.
 ## Using the shell
 
 The catalog loads when cf-explorer starts. Type to filter it; press `/` to run a
-command against the selected app.
+command against the selected app, or press its `Ctrl` shortcut from anywhere. The
+command view lists each command's shortcut.
 
-| Command | Available when | What it does |
-|---|---|---|
-| `/export-env` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
-| `/keystore` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
-| `/open` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |
-| `/refresh` | On the catalog | Reloads from Cloud Foundry, keeps the filter and selection, and updates the cache only on success |
-| `/back` | On any opened page | Returns to the previous page |
-| `/quit` | Always | Exits |
+| Command | Shortcut | Available when | What it does |
+|---|---|---|---|
+| `/export` | `Ctrl+E` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
+| `/keystore` | `Ctrl+K` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
+| `/open` | `Ctrl+O` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |
+| `/refresh` | `Ctrl+R` | On the catalog | Reloads from Cloud Foundry, keeps the filter and selection, and updates the cache only on success |
+| `/back` | `Ctrl+B` | On any opened page | Returns to the previous page |
+| `/quit` | `Ctrl+X` | Always | Exits |
+
+Shortcuts work while typing in the filter or the command view and leave the typed
+text untouched. Every command name is a single word.
 
 | Key | Action |
 |---|---|
@@ -90,8 +94,27 @@ command against the selected app.
 | `/` | Starts a command without losing the filter |
 | `Tab` | Completes the highlighted command |
 | `Enter` | Runs the exact command, or the highlighted suggestion |
-| `Esc` | Cancels the command, returns from a page, or clears the filter |
+| `Esc` | Cancels the command, cancels a running load, returns from a page, or clears the filter |
 | `Ctrl+C` | Quits immediately |
+
+### Waiting and cancelling
+
+Every wait shows an animation, so a slow foundation never looks like a hung
+terminal:
+
+- **Catalog loading** shows a checklist for sign-in, organizations, spaces, and apps
+  (with `x of y` counts from the API), a progress gauge, and the elapsed time.
+- **`/export` and `/keystore`** show an animated working page with the elapsed time,
+  plus a reassurance line after 10 seconds.
+- **`/refresh`** keeps the catalog usable. The title and status line show a spinner
+  and progress until the new catalog arrives.
+- **`/open`** shows a spinner in the status line until the browser launches.
+
+Wait states stay up for at least 350 ms, so fast responses don't flicker. `Esc`
+cancels any wait: the initial load (run `/refresh` to retry), a refresh (the current
+catalog stays; if a filter is set, the first `Esc` clears it), or an export or
+keystore page (returns to the catalog). Results that arrive after you cancel are
+discarded.
 
 Exported `.env` files contain every variable sorted by name, single-quoted and ready
 to `source`. `TRUSTSTORE` is excluded and `SPRING_APPLICATION_JSON` is flattened to a
@@ -169,8 +192,12 @@ The catalog, cache format, profiles, and `.env` format are unchanged. Behavior t
 changed:
 
 - **Slash commands replace key bindings.** `Enter`, `Ctrl+O`, `Ctrl+K`, `Ctrl+F`, and
-  `q` became `/export-env`, `/open`, `/keystore`, `/refresh`, and `/quit`, so every
-  printable key, including `q`, now edits the filter.
+  `q` became `/export`, `/open`, `/keystore`, `/refresh`, and `/quit`, so every
+  printable key, including `q`, now edits the filter. `Ctrl` shortcuts are back for
+  every command (see [Using the shell](#using-the-shell)); `Ctrl+F` is now `Ctrl+R`
+  (`/refresh`).
+- **`/export-env` is now `/export`.** Every command is a single word, and the old
+  name has no alias.
 - **TLS is verified by default.** The previous version trusted every certificate. Pass
   `--skip-ssl-validation` (or set `CF_SKIP_SSL_VALIDATION_<ENV>=true`) for
   foundations with self-signed certificates.

@@ -18,6 +18,7 @@
 //SOURCES catalog/ApplicationCatalog.java
 //SOURCES catalog/CachedCatalogService.java
 //SOURCES catalog/CatalogCacheStore.java
+//SOURCES catalog/CatalogProgress.java
 //SOURCES catalog/CloudFoundryCatalogClient.java
 //SOURCES catalog/CloudFoundryException.java
 //SOURCES config/EnvProcessor.java
@@ -28,6 +29,7 @@
 //SOURCES io/LogSetup.java
 //SOURCES keystore/KeystoreEntry.java
 //SOURCES keystore/KeystoreService.java
+//SOURCES model/Activity.java
 //SOURCES model/ShellCommand.java
 //SOURCES model/ShellCommands.java
 //SOURCES model/ShellPage.java
@@ -36,6 +38,7 @@
 //SOURCES ui/EnvExportPage.java
 //SOURCES ui/ErrorMessages.java
 //SOURCES ui/KeystoreViewPage.java
+//SOURCES ui/LoadingView.java
 //SOURCES ui/ShellView.java
 
 package cf.explorer;

@@ -132,6 +132,63 @@ class ShellStateTest {
   }
 
   @Test
+  void shortcutsRunCommandsWithoutTheCommandViewAndReportUnavailability() {
+    AtomicBoolean ran = new AtomicBoolean();
+    ShellCommand action = new ShellCommand("local", 'l', "Local action", s -> s.page() == null,
+        s -> ran.set(true));
+    ShellState state = new ShellState(ROOT,
+        Stream.concat(Stream.of(action), ShellCommands.create().stream()).toList(),
+        Runnable::run, Runnable::run);
+    assertEquals(List.of("local", "back", "quit"),
+        state.shortcutCommands().stream().map(ShellCommand::name).toList());
+    assertTrue(state.runShortcut('L'));
+    assertTrue(ran.get());
+    assertEquals(false, state.runShortcut('y'));
+
+    press(state, "/lo");
+    ran.set(false);
+    assertTrue(state.runShortcut('l'));
+    assertTrue(ran.get());
+    assertNull(state.command());
+
+    assertTrue(state.runShortcut('b'));
+    assertEquals("Command unavailable: /back", state.status());
+    state.openPage(() -> Toolkit.text("Page"));
+    assertTrue(state.runShortcut('b'));
+    assertNull(state.page());
+    assertTrue(state.runShortcut('x'));
+    assertTrue(state.quitRequested());
+  }
+
+  @Test
+  void shortcutsAreUniqueLettersOutsideTheReservedSet() {
+    for (char reserved : ShellCommand.RESERVED_SHORTCUTS.toCharArray()) {
+      assertThrows(IllegalArgumentException.class,
+          () -> new ShellCommand("cmd", reserved, "Reserved", s -> true, s -> {}));
+    }
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("cmd", '[', "Not a letter", s -> true, s -> {}));
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("cmd", 'R', "Uppercase", s -> true, s -> {}));
+    assertEquals("Ctrl+R", new ShellCommand("cmd", 'r', "Ok", s -> true, s -> {})
+        .shortcutLabel());
+    assertEquals("", new ShellCommand("cmd", "None", s -> true, s -> {}).shortcutLabel());
+    ShellCommand first = new ShellCommand("first", 'r', "First", s -> true, s -> {});
+    ShellCommand second = new ShellCommand("second", 'r', "Second", s -> true, s -> {});
+    assertThrows(IllegalArgumentException.class, () -> new ShellState(ROOT,
+        List.of(first, second), Runnable::run, Runnable::run));
+  }
+
+  @Test
+  void commandNamesAreSingleWords() {
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("export-env", "Two words", s -> true, s -> {}));
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("export env", "Two words", s -> true, s -> {}));
+    assertEquals("export", new ShellCommand("export", "One word", s -> true, s -> {}).name());
+  }
+
+  @Test
   void asyncCompletionRunsOnlyWhenDispatched() {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> render = new ArrayDeque<>();
