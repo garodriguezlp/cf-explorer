@@ -95,27 +95,42 @@ public final class CloudFoundryCatalogClient {
   }
 
   public CatalogSnapshot loadSnapshot() throws IOException, InterruptedException {
+    return loadSnapshot(CatalogProgress.NONE);
+  }
+
+  /** Loads organizations, spaces, and apps in parallel, reporting each page to {@code progress}. */
+  public CatalogSnapshot loadSnapshot(CatalogProgress progress)
+      throws IOException, InterruptedException {
+    Objects.requireNonNull(progress);
     String token = accessToken(false);
+    progress.authenticated();
     ExecutorService pool = Executors.newFixedThreadPool(3, runnable -> {
       Thread thread = new Thread(runnable, "cf-catalog-fetch");
       thread.setDaemon(true);
       return thread;
     });
     try {
-      CompletableFuture<List<JsonNode>> orgs = fetchAsync("/v3/organizations", token, pool);
-      CompletableFuture<List<JsonNode>> spaces = fetchAsync("/v3/spaces", token, pool);
-      CompletableFuture<List<JsonNode>> apps = fetchAsync("/v3/apps", token, pool);
+      CompletableFuture<List<JsonNode>> orgs = fetchAsync("/v3/organizations",
+          CatalogProgress.Resource.ORGANIZATIONS, token, pool, progress);
+      CompletableFuture<List<JsonNode>> spaces = fetchAsync("/v3/spaces",
+          CatalogProgress.Resource.SPACES, token, pool, progress);
+      CompletableFuture<List<JsonNode>> apps = fetchAsync("/v3/apps",
+          CatalogProgress.Resource.APPS, token, pool, progress);
       return new CatalogSnapshot(await(orgs), await(spaces), await(apps));
     } finally {
       pool.shutdownNow();
     }
   }
 
-  private CompletableFuture<List<JsonNode>> fetchAsync(String path, String token,
-      ExecutorService pool) {
+  private CompletableFuture<List<JsonNode>> fetchAsync(String path,
+      CatalogProgress.Resource resource, String token, ExecutorService pool,
+      CatalogProgress progress) {
     return CompletableFuture.supplyAsync(() -> {
       try {
-        return fetch(path, token);
+        List<JsonNode> all = fetch(path, token, (fetched, total) ->
+            progress.fetched(resource, fetched, total));
+        progress.completed(resource, all.size());
+        return all;
       } catch (IOException | InterruptedException ex) {
         throw new CompletionException(ex);
       }
@@ -225,7 +240,11 @@ public final class CloudFoundryCatalogClient {
     return parseJsonResponse(response, "Cloud Foundry API request");
   }
 
-  private List<JsonNode> fetch(String path, String initialToken)
+  private interface PageListener {
+    void fetched(int fetched, int total);
+  }
+
+  private List<JsonNode> fetch(String path, String initialToken, PageListener listener)
       throws IOException, InterruptedException {
     List<JsonNode> all = new ArrayList<>();
     String token = initialToken;
@@ -246,6 +265,8 @@ public final class CloudFoundryCatalogClient {
         throw new CloudFoundryException("Invalid catalog response from " + path);
       }
       resources.forEach(all::add);
+      JsonNode total = pagination.get("total_results");
+      listener.fetched(all.size(), total != null && total.canConvertToInt() ? total.asInt() : -1);
       if (pagination.get("next").isNull()) {
         return all;
       }

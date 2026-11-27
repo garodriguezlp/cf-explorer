@@ -18,6 +18,7 @@
 //SOURCES catalog/ApplicationCatalog.java
 //SOURCES catalog/CachedCatalogService.java
 //SOURCES catalog/CatalogCacheStore.java
+//SOURCES catalog/CatalogProgress.java
 //SOURCES catalog/CloudFoundryCatalogClient.java
 //SOURCES catalog/CloudFoundryException.java
 //SOURCES config/EnvProcessor.java

@@ -13,13 +13,31 @@ public final class CachedCatalogService {
   public interface SnapshotLoader {
     CloudFoundryCatalogClient.CatalogSnapshot loadSnapshot()
         throws IOException, InterruptedException;
+
+    /** Loads while reporting progress. Loaders that cannot report progress ignore it. */
+    default CloudFoundryCatalogClient.CatalogSnapshot loadSnapshot(CatalogProgress progress)
+        throws IOException, InterruptedException {
+      return loadSnapshot();
+    }
   }
 
   private final SnapshotLoader liveLoader;
   private final CatalogCacheStore cacheStore;
 
   public CachedCatalogService(CloudFoundryCatalogClient client, CatalogCacheStore cacheStore) {
-    this(client::loadSnapshot, cacheStore);
+    this(new SnapshotLoader() {
+      @Override
+      public CloudFoundryCatalogClient.CatalogSnapshot loadSnapshot()
+          throws IOException, InterruptedException {
+        return client.loadSnapshot();
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.CatalogSnapshot loadSnapshot(CatalogProgress progress)
+          throws IOException, InterruptedException {
+        return client.loadSnapshot(progress);
+      }
+    }, cacheStore);
   }
 
   public CachedCatalogService(SnapshotLoader liveLoader, CatalogCacheStore cacheStore) {
@@ -28,21 +46,38 @@ public final class CachedCatalogService {
   }
 
   public ApplicationCatalog load(boolean fresh) throws IOException, InterruptedException {
+    return load(fresh, CatalogProgress.NONE);
+  }
+
+  /** Loads from the cache unless {@code fresh}; a cache hit reports every resource complete. */
+  public ApplicationCatalog load(boolean fresh, CatalogProgress progress)
+      throws IOException, InterruptedException {
+    Objects.requireNonNull(progress);
     if (!fresh) {
       Optional<ApplicationCatalog> cached = cacheStore.readIfPresent();
       if (cached.isPresent()) {
-        return cached.get();
+        ApplicationCatalog catalog = cached.get();
+        progress.completed(CatalogProgress.Resource.ORGANIZATIONS, catalog.organizations());
+        progress.completed(CatalogProgress.Resource.SPACES, catalog.spaces());
+        progress.completed(CatalogProgress.Resource.APPS, catalog.apps().size());
+        return catalog;
       }
     }
-    return fetchLiveAndUpdateCache();
+    return fetchLiveAndUpdateCache(progress);
   }
 
   public ApplicationCatalog refresh() throws IOException, InterruptedException {
-    return fetchLiveAndUpdateCache();
+    return refresh(CatalogProgress.NONE);
   }
 
-  private ApplicationCatalog fetchLiveAndUpdateCache() throws IOException, InterruptedException {
-    CloudFoundryCatalogClient.CatalogSnapshot snapshot = liveLoader.loadSnapshot();
+  public ApplicationCatalog refresh(CatalogProgress progress)
+      throws IOException, InterruptedException {
+    return fetchLiveAndUpdateCache(Objects.requireNonNull(progress));
+  }
+
+  private ApplicationCatalog fetchLiveAndUpdateCache(CatalogProgress progress)
+      throws IOException, InterruptedException {
+    CloudFoundryCatalogClient.CatalogSnapshot snapshot = liveLoader.loadSnapshot(progress);
     ApplicationCatalog catalog = snapshot.toCatalog();
     try {
       cacheStore.write(snapshot);
