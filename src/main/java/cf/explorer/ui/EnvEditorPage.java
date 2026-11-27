@@ -498,15 +498,44 @@ public final class EnvEditorPage implements ShellPage {
         case UPDATED -> Color.LIGHT_YELLOW;
         default -> Color.WHITE;
       };
-      spans.add(Span.styled(preview, Style.create().fg(valColor)));
+      spans.addAll(highlightValueSpans(preview, entry.effectiveValue(), filter,
+          valueMaxWidth, Style.create().fg(valColor)));
     }
     return Text.from(Line.from(spans));
   }
 
   private static List<Span> highlightKeySpans(String displayKey, String fullKey, String query) {
     boolean[] matched = EnvDraft.matchedKeyChars(fullKey, query);
+    return highlightSpans(displayKey, matched, null);
+  }
+
+  private static List<Span> highlightValueSpans(
+      String preview, String value, String query, int maxWidth, Style valueStyle) {
+    boolean[] matchedPreview = new boolean[preview.length()];
+    if (value != null && !value.isEmpty()) {
+      boolean[] matchedValue = EnvDraft.matchedKeyChars(value, query);
+      String escaped = escapeInline(value);
+      int visibleLength = escaped.length() > Math.max(4, maxWidth)
+          ? preview.length() - 1 : preview.length();
+      int displayIndex = 0;
+      for (int i = 0; i < value.length() && displayIndex < visibleLength; i++) {
+        char ch = value.charAt(i);
+        boolean matched = matchedValue[i];
+        if (ch == '\r' && i + 1 < value.length() && value.charAt(i + 1) == '\n') {
+          matched |= matchedValue[++i];
+        }
+        int displayLength = ch == '\r' || ch == '\n' || ch == '\t' ? 2 : 1;
+        for (int j = 0; j < displayLength && displayIndex < visibleLength; j++) {
+          matchedPreview[displayIndex++] = matched;
+        }
+      }
+    }
+    return highlightSpans(preview, matchedPreview, valueStyle);
+  }
+
+  private static List<Span> highlightSpans(String display, boolean[] matched, Style baseStyle) {
     List<Span> spans = new ArrayList<>();
-    int limit = Math.min(displayKey.length(), matched.length);
+    int limit = Math.min(display.length(), matched.length);
     int i = 0;
     while (i < limit) {
       boolean flag = matched[i];
@@ -514,13 +543,14 @@ public final class EnvEditorPage implements ShellPage {
       while (i < limit && matched[i] == flag) {
         i++;
       }
-      String segment = displayKey.substring(start, i);
+      String segment = display.substring(start, i);
       spans.add(flag
           ? Span.styled(segment, Style.create().fg(Color.LIGHT_YELLOW).bold())
-          : Span.raw(segment));
+          : baseStyle == null ? Span.raw(segment) : Span.styled(segment, baseStyle));
     }
-    if (limit < displayKey.length()) {
-      spans.add(Span.raw(displayKey.substring(limit)));
+    if (limit < display.length()) {
+      String remainder = display.substring(limit);
+      spans.add(baseStyle == null ? Span.raw(remainder) : Span.styled(remainder, baseStyle));
     }
     return spans;
   }
@@ -575,12 +605,15 @@ public final class EnvEditorPage implements ShellPage {
     if (value == null || value.isEmpty()) {
       return "<empty>";
     }
-    String escaped = value
+    return truncate(escapeInline(value), Math.max(4, maxWidth));
+  }
+
+  private static String escapeInline(String value) {
+    return value
         .replace("\r\n", "\\n")
         .replace("\n", "\\n")
         .replace("\r", "\\r")
         .replace("\t", "\\t");
-    return truncate(escaped, Math.max(4, maxWidth));
   }
 
   private static String truncate(String text, int maxWidth) {
