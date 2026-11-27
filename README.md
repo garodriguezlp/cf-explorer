@@ -72,8 +72,7 @@ The mock listens on `http://localhost:9090` and accepts `admin` / `admin`.
 
 The catalog loads when cf-explorer starts. Type to filter it; press `/` to run a
 command against the selected app, or press its `Ctrl` shortcut from anywhere. The
-command view lists each command's shortcut, and the footer shows the shortcuts that
-apply to the current page.
+command view lists each command's shortcut.
 
 | Command | Shortcut | Available when | What it does |
 |---|---|---|---|

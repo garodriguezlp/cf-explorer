@@ -85,8 +85,7 @@ class ExplorerCommandsTest {
     assertTrue(commandView.contains("/quit      Ctrl+X  Exit cf-explorer"), commandView);
     state.cancel();
     String footer = render(state);
-    assertTrue(footer.contains("Shortcuts:  Ctrl+E export  Ctrl+O open  Ctrl+K keystore"
-        + "  Ctrl+R refresh  Ctrl+X quit"), footer);
+    assertFalse(footer.contains("Ctrl+E"), "shortcuts are listed only in the command view");
 
     // /open runs off render thread and reports success
     type(state, "/open");

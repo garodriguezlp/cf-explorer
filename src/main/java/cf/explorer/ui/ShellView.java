@@ -81,9 +81,9 @@ public final class ShellView {
     if (compact) {
       layout.add(text(" Esc back/cancel  |  Ctrl+C quit").fg(Color.GRAY));
     } else {
-      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run"
-          + "  |  Esc cancel/back").fg(Color.GRAY));
-      layout.add(richText(shortcutHints(state)));
+      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run")
+          .fg(Color.GRAY));
+      layout.add(text(" Esc cancel/back  |  Ctrl+C quit").fg(Color.GRAY));
     }
     return column(layout.toArray(Element[]::new));
   }
@@ -116,20 +116,6 @@ public final class ShellView {
       spans.add(Span.raw("  "));
     }
     spans.add(Span.raw(command.description()));
-    return Text.from(Line.from(spans));
-  }
-
-  /** Footer listing the shortcuts of commands that can run right now. */
-  private static Text shortcutHints(ShellState state) {
-    List<Span> spans = new ArrayList<>();
-    spans.add(Span.styled(" Shortcuts:", Style.create().fg(Color.GRAY)));
-    for (ShellCommand command : state.shortcutCommands()) {
-      if (command.available().test(state)) {
-        spans.add(Span.styled("  " + command.shortcutLabel(),
-            Style.create().fg(Color.LIGHT_MAGENTA)));
-        spans.add(Span.styled(" " + command.name(), Style.create().fg(Color.GRAY)));
-      }
-    }
     return Text.from(Line.from(spans));
   }
 
