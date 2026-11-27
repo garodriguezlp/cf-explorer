@@ -44,6 +44,21 @@ public final class ExplorerCommands {
       KeystoreService keystoreService,
       Executor worker,
       Consumer<Runnable> dispatch) {
+    Objects.requireNonNull(refreshLoader);
+    return create(catalogPage, progress -> refreshLoader.get(), envExportService, cfWebUrl,
+        browserLauncher, keystoreService, worker, dispatch);
+  }
+
+  /** Registers the commands; {@code refreshLoader} reports progress to the catalog page. */
+  public static List<ShellCommand> create(
+      ApplicationCatalogPage catalogPage,
+      ApplicationCatalogPage.ProgressLoader refreshLoader,
+      EnvExportService envExportService,
+      String cfWebUrl,
+      BrowserLauncher browserLauncher,
+      KeystoreService keystoreService,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
     Objects.requireNonNull(catalogPage);
     Objects.requireNonNull(refreshLoader);
     Objects.requireNonNull(envExportService);

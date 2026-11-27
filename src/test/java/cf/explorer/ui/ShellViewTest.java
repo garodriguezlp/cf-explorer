@@ -11,6 +11,7 @@ import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.model.ExampleWorkspace;
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CatalogProgress;
 import dev.tamboui.buffer.Buffer;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
@@ -114,6 +115,75 @@ class ShellViewTest {
     state.requestQuit();
     dispatch.remove().run();
     assertNull(state.currentSelection());
+  }
+
+  @Test
+  void catalogLoadingShowsPerResourceProgressAndEscCancels() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), worker::add, dispatch::add);
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    page.startLoading((CatalogProgress progress) -> {
+      progress.authenticated();
+      progress.completed(CatalogProgress.Resource.ORGANIZATIONS, 4);
+      progress.fetched(CatalogProgress.Resource.SPACES, 100, 400);
+      return new ApplicationCatalog(1, 1, List.of(app));
+    }, worker::add, dispatch::add, () -> !state.quitRequested());
+    String waiting = render(state);
+    assertTrue(waiting.contains("Loading Cloud Foundry catalog..."), waiting);
+    assertTrue(waiting.contains("Sign in        contacting UAA..."), waiting);
+    assertTrue(waiting.contains("Apps           waiting"), waiting);
+    assertTrue(waiting.contains("0%"), waiting);
+    assertTrue(waiting.contains("Press Esc to cancel."), waiting);
+
+    worker.remove().run();
+    for (int i = 0; i < 3; i++) {
+      dispatch.remove().run();
+    }
+    String progress = render(state);
+    assertTrue(progress.contains("\u2713 Organizations  4 found"), progress);
+    assertTrue(progress.contains("Spaces         100 of 400"), progress);
+    assertTrue(progress.contains("Apps           fetching..."), progress);
+    assertTrue(progress.contains("56%"), progress);
+
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    dispatch.remove().run();
+    String cancelled = render(state);
+    assertTrue(cancelled.contains("Catalog loading cancelled."), cancelled);
+    assertTrue(cancelled.contains("Run /refresh (Ctrl+R) to retry."), cancelled);
+    assertNull(state.currentSelection());
+    assertNull(page.activity());
+  }
+
+  @Test
+  void escCancelsARefreshButClearsTheFilterFirst() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), worker::add, dispatch::add);
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    var other = new ApplicationCatalog.App("two", "other", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    page.loaded(new ApplicationCatalog(1, 1, List.of(app)));
+    page.startRefresh(() -> new ApplicationCatalog(1, 1, List.of(app, other)), worker::add,
+        dispatch::add, () -> true, state::showStatus);
+    String refreshing = render(state);
+    assertTrue(refreshing.contains("refreshing 0%]"), refreshing);
+    assertEquals("Refreshing catalog...", state.statusActivity().label());
+
+    keys(state, "ap");
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertEquals("", page.inputValue());
+    assertTrue(page.activity() != null, "the first Esc clears the filter");
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertNull(page.activity());
+    assertEquals("Refresh cancelled. Keeping the current catalog.", state.status());
+    worker.remove().run();
+    dispatch.remove().run();
+    assertTrue(render(state).contains("Apps  1/1"));
   }
 
   @Test
