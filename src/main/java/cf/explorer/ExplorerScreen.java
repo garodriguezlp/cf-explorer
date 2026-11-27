@@ -10,6 +10,7 @@ import cf.explorer.config.ExplorerConfig;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.io.ClipboardSupport;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppLifecycleService;
 import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.ShellView;
@@ -45,6 +46,8 @@ final class ExplorerScreen extends ToolkitApp {
     KeystoreService keystoreService = new KeystoreService(
         client::fetchEnvironmentVariables, config.keystoreVar(), config.keystorePasswordVar(),
         config.jksDir(), config.copyToClipboard(), clipboard);
+    AppLifecycleService lifecycleService = new AppLifecycleService(
+        client, catalogService::updateCachedApp);
     Executor worker = ForkJoinPool.commonPool();
     Consumer<Runnable> dispatch = action -> runner().runOnRenderThread(action);
     this.state = new ShellState(
@@ -56,6 +59,8 @@ final class ExplorerScreen extends ToolkitApp {
             config.cfWebUrl(),
             BrowserLauncher.system(),
             keystoreService,
+            lifecycleService,
+            config.env(),
             worker,
             dispatch),
         worker,

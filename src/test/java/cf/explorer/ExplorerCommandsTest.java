@@ -6,8 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CloudFoundryCatalogClient;
+import cf.explorer.catalog.CloudFoundryException;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppLifecycleService;
 import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
@@ -18,9 +21,11 @@ import dev.tamboui.terminal.Frame;
 import dev.tamboui.toolkit.element.DefaultRenderContext;
 import dev.tamboui.tui.event.KeyCode;
 import dev.tamboui.tui.event.KeyEvent;
+import dev.tamboui.tui.event.KeyModifiers;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.List;
@@ -202,6 +207,168 @@ class ExplorerCommandsTest {
     assertTrue(screen.contains("CUSTOM_KS"), screen);
     state.cancel();
     assertEquals(APP, state.selected(ApplicationCatalog.App.class));
+  }
+
+  @Test
+  void lifecycleCommandsConfirmInlineAnimateRowsConcurrentlyAndNotifyOnCompletion() {
+    var startedApp = new ApplicationCatalog.App(
+        "app-1", "billing-api", "STARTED", "space-1", "production", "org-1", "finance",
+        "2024-01-01", "2024-01-02");
+    var stoppedApp = new ApplicationCatalog.App(
+        "app-2", "auth-worker", "STOPPED", "space-1", "production", "org-1", "finance",
+        "2024-01-01", "2024-01-02");
+
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    AtomicReference<Boolean> failNextStop = new AtomicReference<>(false);
+
+    AppLifecycleService.Api api = new AppLifecycleService.Api() {
+      @Override
+      public CloudFoundryCatalogClient.AppStateResult startApp(String appGuid) {
+        return new CloudFoundryCatalogClient.AppStateResult(
+            appGuid, "STARTED", "2026-06-01T12:00:00Z", null);
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.AppStateResult stopApp(String appGuid) throws IOException {
+        if (failNextStop.get()) {
+          throw new CloudFoundryException("Stop app was rejected (HTTP 403).");
+        }
+        return new CloudFoundryCatalogClient.AppStateResult(
+            appGuid, "STOPPED", "2026-06-01T12:01:00Z", null);
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.AppStateResult restartApp(String appGuid) {
+        return new CloudFoundryCatalogClient.AppStateResult(
+            appGuid, "STARTED", "2026-06-01T12:02:00Z", null);
+      }
+
+      @Override
+      public String findLatestReadyPackageGuid(String appGuid) {
+        return "pkg-1";
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.BuildResult createBuild(String packageGuid) {
+        return new CloudFoundryCatalogClient.BuildResult("bld-1", "STAGING", null);
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.BuildResult getBuild(String buildGuid) {
+        return new CloudFoundryCatalogClient.BuildResult(buildGuid, "STAGED", "drp-1");
+      }
+
+      @Override
+      public void setCurrentDroplet(String appGuid, String dropletGuid) {}
+    };
+
+    ApplicationCatalogPage catalogPage = new ApplicationCatalogPage();
+    catalogPage.loaded(new ApplicationCatalog(1, 1, List.of(startedApp, stoppedApp)));
+    AppLifecycleService lifecycle = new AppLifecycleService(
+        api, node -> {}, Duration.ofMillis(1), 5, d -> {});
+
+    List<ShellCommand> commands = ExplorerCommands.create(
+        catalogPage,
+        progress -> new ApplicationCatalog(1, 1, List.of(startedApp, stoppedApp)),
+        new EnvExportService(g -> Map.of(), temp.resolve("envs"), List.of(), Map.of(), false, t -> true),
+        "https://apps.example.com",
+        url -> {},
+        new KeystoreService(g -> Map.of(), "K", "P", temp.resolve("jks"), false, t -> true),
+        lifecycle,
+        "prod",
+        worker::add,
+        dispatch::add);
+
+    ShellState state = new ShellState(catalogPage, commands, worker::add, dispatch::add);
+
+    // For STARTED app: stop, restart, restage available; start is not
+    type(state, "/");
+    assertEquals(
+        List.of("export", "open", "keystore", "stop", "restart", "restage", "refresh", "quit"),
+        state.suggestions().stream().map(ShellCommand::name).toList());
+    state.cancel();
+
+    // Filter stays intact when Ctrl+P triggers inline confirmation, and 'n' cancels cleanly
+    for (char c : "finance".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    ShellView.handleKey(KeyEvent.ofChar('p', KeyModifiers.CTRL), state, () -> {});
+    String confirmScreen = render(state);
+    assertTrue(confirmScreen.contains(" Confirm "), confirmScreen);
+    assertTrue(
+        confirmScreen.contains("Stop billing-api in finance \u203a production [prod]?"),
+        confirmScreen);
+    assertTrue(confirmScreen.contains("[Enter/y] confirm  [Esc/n] cancel"), confirmScreen);
+    ShellView.handleKey(KeyEvent.ofChar('n'), state, () -> {});
+    assertNull(state.confirmation());
+    assertEquals("Cancelled.", state.status());
+    assertEquals("finance", catalogPage.inputValue());
+    assertTrue(worker.isEmpty());
+
+    // Confirming Ctrl+P starts background stop; user stays in catalog with live row & header badge
+    ShellView.handleKey(KeyEvent.ofChar('p', KeyModifiers.CTRL), state, () -> {});
+    ShellView.handleKey(KeyEvent.ofChar('y'), state, () -> {});
+    assertNull(state.confirmation());
+    assertEquals(1, worker.size());
+    String inFlightSingle = render(state);
+    assertTrue(inFlightSingle.contains("STOPPING"), inFlightSingle);
+    assertTrue(inFlightSingle.contains("billing-api: stopping]"), inFlightSingle);
+
+    // Duplicate mutations on billing-api are locked while in flight, but user can move to
+    // auth-worker and concurrently start it with Ctrl+U -> Enter!
+    assertTrue(state.runShortcut('t'));
+    assertEquals("Command unavailable: /restart", state.status());
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.DOWN), state, () -> {});
+    assertEquals("auth-worker", state.selected(ApplicationCatalog.App.class).name());
+    ShellView.handleKey(KeyEvent.ofChar('u', KeyModifiers.CTRL), state, () -> {});
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertEquals(2, worker.size());
+    String inFlightMulti = render(state);
+    assertTrue(inFlightMulti.contains("STARTING"), inFlightMulti);
+    assertTrue(inFlightMulti.contains("2 ops running]"), inFlightMulti);
+
+    // First background job completes -> billing-api flips to STOPPED and shows green ✓ notice
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals("\u2713 Stopped billing-api \u2192 STOPPED", state.status());
+    assertEquals(ShellState.StatusKind.SUCCESS, state.statusKind());
+
+    // Second background job completes -> auth-worker flips to STARTED
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals("\u2713 Started auth-worker \u2192 STARTED", state.status());
+
+    // Move back up to billing-api (now STOPPED): /start is now available, /stop is not
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.UP), state, () -> {});
+    assertEquals("STOPPED", state.selected(ApplicationCatalog.App.class).state());
+    type(state, "/");
+    assertTrue(state.suggestions().stream().anyMatch(c -> c.name().equals("start")));
+    assertFalse(state.suggestions().stream().anyMatch(c -> c.name().equals("stop")));
+    state.cancel();
+
+    // /restage (Ctrl+G) updates step badges on the render thread and restarts into STARTED
+    ShellView.handleKey(KeyEvent.ofChar('g', KeyModifiers.CTRL), state, () -> {});
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    worker.remove().run();
+    // Drain step updates + final completion on render thread
+    dispatch.remove().run();
+    assertTrue(render(state).contains("STAGING 1/4"));
+    while (!dispatch.isEmpty()) {
+      dispatch.remove().run();
+    }
+    assertEquals("\u2713 Restaged billing-api \u2192 STARTED", state.status());
+    assertEquals("STARTED", state.selected(ApplicationCatalog.App.class).state());
+
+    // Safe failure reporting sets ERROR status without altering app state
+    failNextStop.set(true);
+    ShellView.handleKey(KeyEvent.ofChar('p', KeyModifiers.CTRL), state, () -> {});
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals(ShellState.StatusKind.ERROR, state.statusKind());
+    assertTrue(state.status().startsWith("\u2717 Stop failed for billing-api: Stop app was rejected"));
+    assertEquals("STARTED", state.selected(ApplicationCatalog.App.class).state());
   }
 
   private static void type(ShellState state, String input) {

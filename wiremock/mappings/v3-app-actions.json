@@ -1,0 +1,67 @@
+{
+  "mappings": [
+    {
+      "name": "CF API v3 — POST /v3/apps/*/actions/start",
+      "request": {
+        "method": "POST",
+        "urlPathPattern": "/v3/apps/[^/]+/actions/start",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 1200,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "jsonBody": {
+          "guid": "{{request.pathSegments.[2]}}",
+          "state": "STARTED",
+          "updated_at": "{{now format='yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\''}}"
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — POST /v3/apps/*/actions/stop",
+      "request": {
+        "method": "POST",
+        "urlPathPattern": "/v3/apps/[^/]+/actions/stop",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 1200,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "jsonBody": {
+          "guid": "{{request.pathSegments.[2]}}",
+          "state": "STOPPED",
+          "updated_at": "{{now format='yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\''}}"
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — POST /v3/apps/*/actions/restart",
+      "request": {
+        "method": "POST",
+        "urlPathPattern": "/v3/apps/[^/]+/actions/restart",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 1500,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "jsonBody": {
+          "guid": "{{request.pathSegments.[2]}}",
+          "state": "STARTED",
+          "updated_at": "{{now format='yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\''}}"
+        }
+      }
+    }
+  ]
+}

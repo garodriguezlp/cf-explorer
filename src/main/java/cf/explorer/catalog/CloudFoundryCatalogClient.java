@@ -65,6 +65,22 @@ public final class CloudFoundryCatalogClient {
     }
   }
 
+  /** Updated application state returned by a Cloud Foundry v3 lifecycle action. */
+  public record AppStateResult(String guid, String state, String updatedAt, JsonNode rawApp) {
+    public AppStateResult {
+      Objects.requireNonNull(guid);
+      Objects.requireNonNull(state);
+    }
+  }
+
+  /** Cloud Foundry v3 build status returned while staging a package. */
+  public record BuildResult(String guid, String state, String dropletGuid) {
+    public BuildResult {
+      Objects.requireNonNull(guid);
+      Objects.requireNonNull(state);
+    }
+  }
+
   public CloudFoundryCatalogClient(String uaaUrl, String apiUrl, String username, String password) {
     this(uaaUrl, apiUrl, username, password, false);
   }
@@ -158,12 +174,10 @@ public final class CloudFoundryCatalogClient {
 
   public Map<String, String> fetchEnvironmentVariables(String appGuid)
       throws IOException, InterruptedException {
-    Objects.requireNonNull(appGuid);
-    if (appGuid.isBlank()) {
-      throw new IllegalArgumentException("App GUID must not be blank");
-    }
-    String encodedGuid = URLEncoder.encode(appGuid, StandardCharsets.UTF_8);
-    JsonNode response = sendAuthorizedGet("/v3/apps/" + encodedGuid + "/environment_variables");
+    String encodedGuid = encodeRequiredGuid(appGuid, "App GUID");
+    JsonNode response = sendAuthorizedJson(
+        "GET", "/v3/apps/" + encodedGuid + "/environment_variables", null,
+        "Cloud Foundry API request");
     JsonNode varNode = response.get("var");
     if (varNode == null || varNode.isNull()) {
       return Map.of();
@@ -177,6 +191,94 @@ public final class CloudFoundryCatalogClient {
       result.put(entry.getKey(), value == null || value.isNull() ? "" : value.asText());
     }
     return Map.copyOf(result);
+  }
+
+  public AppStateResult startApp(String appGuid) throws IOException, InterruptedException {
+    return performAppAction(appGuid, "start", "Start app");
+  }
+
+  public AppStateResult stopApp(String appGuid) throws IOException, InterruptedException {
+    return performAppAction(appGuid, "stop", "Stop app");
+  }
+
+  public AppStateResult restartApp(String appGuid) throws IOException, InterruptedException {
+    return performAppAction(appGuid, "restart", "Restart app");
+  }
+
+  private AppStateResult performAppAction(String appGuid, String action, String operation)
+      throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(appGuid, "App GUID");
+    JsonNode response = sendAuthorizedJson(
+        "POST", "/v3/apps/" + encodedGuid + "/actions/" + action, "", operation);
+    return new AppStateResult(
+        required(response, "guid"),
+        required(response, "state"),
+        optional(response, "updated_at"),
+        response);
+  }
+
+  public String findLatestReadyPackageGuid(String appGuid)
+      throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(appGuid, "App GUID");
+    JsonNode response = sendAuthorizedJson(
+        "GET",
+        "/v3/apps/" + encodedGuid + "/packages?states=READY&order_by=-created_at&per_page=1",
+        null,
+        "Fetch app packages");
+    JsonNode resources = response.get("resources");
+    if (resources == null || !resources.isArray()) {
+      throw new CloudFoundryException("Invalid packages response");
+    }
+    if (resources.isEmpty()) {
+      throw new CloudFoundryException("No READY package found to restage.");
+    }
+    return required(resources.get(0), "guid");
+  }
+
+  public BuildResult createBuild(String packageGuid) throws IOException, InterruptedException {
+    Objects.requireNonNull(packageGuid);
+    if (packageGuid.isBlank()) {
+      throw new IllegalArgumentException("Package GUID must not be blank");
+    }
+    String body = JSON.writeValueAsString(Map.of("package", Map.of("guid", packageGuid)));
+    JsonNode response = sendAuthorizedJson("POST", "/v3/builds", body, "Create build");
+    return parseBuild(response);
+  }
+
+  public BuildResult getBuild(String buildGuid) throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(buildGuid, "Build GUID");
+    JsonNode response = sendAuthorizedJson("GET", "/v3/builds/" + encodedGuid, null, "Poll build");
+    return parseBuild(response);
+  }
+
+  public void setCurrentDroplet(String appGuid, String dropletGuid)
+      throws IOException, InterruptedException {
+    String encodedApp = encodeRequiredGuid(appGuid, "App GUID");
+    Objects.requireNonNull(dropletGuid);
+    if (dropletGuid.isBlank()) {
+      throw new IllegalArgumentException("Droplet GUID must not be blank");
+    }
+    String body = JSON.writeValueAsString(Map.of("data", Map.of("guid", dropletGuid)));
+    sendAuthorizedJson(
+        "PATCH", "/v3/apps/" + encodedApp + "/relationships/current_droplet", body,
+        "Assign current droplet");
+  }
+
+  private static BuildResult parseBuild(JsonNode response) throws IOException {
+    String guid = required(response, "guid");
+    String state = required(response, "state");
+    JsonNode droplet = response.path("droplet").path("guid");
+    String dropletGuid = droplet.isTextual() && !droplet.asText().isBlank()
+        ? droplet.asText() : null;
+    return new BuildResult(guid, state, dropletGuid);
+  }
+
+  private static String encodeRequiredGuid(String guid, String label) {
+    Objects.requireNonNull(guid);
+    if (guid.isBlank()) {
+      throw new IllegalArgumentException(label + " must not be blank");
+    }
+    return URLEncoder.encode(guid, StandardCharsets.UTF_8);
   }
 
   public static ApplicationCatalog join(List<JsonNode> orgs, List<JsonNode> spaces,
@@ -229,15 +331,17 @@ public final class CloudFoundryCatalogClient {
     }
   }
 
-  private JsonNode sendAuthorizedGet(String path) throws IOException, InterruptedException {
+  private JsonNode sendAuthorizedJson(String method, String path, String jsonBody,
+      String operation) throws IOException, InterruptedException {
     String token = accessToken(false);
-    HttpResponse<String> response = http.send(authorizedGet(path, token),
+    HttpResponse<String> response = http.send(authorizedRequest(method, path, jsonBody, token),
         HttpResponse.BodyHandlers.ofString());
     if (response.statusCode() == 401) {
       String refreshed = accessToken(true);
-      response = http.send(authorizedGet(path, refreshed), HttpResponse.BodyHandlers.ofString());
+      response = http.send(authorizedRequest(method, path, jsonBody, refreshed),
+          HttpResponse.BodyHandlers.ofString());
     }
-    return parseJsonResponse(response, "Cloud Foundry API request");
+    return parseJsonResponse(response, operation);
   }
 
   private interface PageListener {
@@ -251,11 +355,12 @@ public final class CloudFoundryCatalogClient {
     int page = 1;
     while (true) {
       String pagePath = path + "?per_page=100&page=" + page;
-      HttpResponse<String> raw = http.send(authorizedGet(pagePath, token),
+      HttpResponse<String> raw = http.send(authorizedRequest("GET", pagePath, null, token),
           HttpResponse.BodyHandlers.ofString());
       if (raw.statusCode() == 401) {
         token = accessToken(true);
-        raw = http.send(authorizedGet(pagePath, token), HttpResponse.BodyHandlers.ofString());
+        raw = http.send(authorizedRequest("GET", pagePath, null, token),
+            HttpResponse.BodyHandlers.ofString());
       }
       JsonNode response = parseJsonResponse(raw, "Cloud Foundry API request");
       JsonNode resources = response.get("resources");
@@ -274,10 +379,19 @@ public final class CloudFoundryCatalogClient {
     }
   }
 
-  private HttpRequest authorizedGet(String path, String token) {
-    return HttpRequest.newBuilder(uri(apiUrl, path))
+  private HttpRequest authorizedRequest(String method, String path, String jsonBody, String token) {
+    HttpRequest.Builder builder = HttpRequest.newBuilder(uri(apiUrl, path))
         .timeout(Duration.ofSeconds(30))
-        .header("Authorization", "Bearer " + token).GET().build();
+        .header("Authorization", "Bearer " + token);
+    if ("GET".equals(method)) {
+      builder.GET();
+    } else if (jsonBody == null || jsonBody.isEmpty()) {
+      builder.method(method, HttpRequest.BodyPublishers.noBody());
+    } else {
+      builder.header("Content-Type", "application/json")
+          .method(method, HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8));
+    }
+    return builder.build();
   }
 
   private static JsonNode parseJsonResponse(HttpResponse<String> response, String operation)
@@ -286,6 +400,13 @@ public final class CloudFoundryCatalogClient {
     if (status == 401 || status == 403) {
       throw new CloudFoundryException(operation + " was rejected (HTTP " + status
           + "). Check the username, password, and URLs.");
+    }
+    if (status == 404) {
+      throw new CloudFoundryException(operation + " failed (HTTP 404): resource not found.");
+    }
+    if (status == 422) {
+      throw new CloudFoundryException(operation
+          + " was rejected by Cloud Foundry (HTTP 422). The app may not have a staged droplet.");
     }
     if (status < 200 || status >= 300) {
       throw new CloudFoundryException(operation + " failed (HTTP " + status + ").");

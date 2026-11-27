@@ -30,6 +30,10 @@ class ShortcutDecodingTest {
         new ShellCommand("export", 'e', "Export", s -> true, s -> {}),
         new ShellCommand("keystore", 'k', "Keystore", s -> true, s -> {}),
         new ShellCommand("open", 'o', "Open", s -> true, s -> {}),
+        new ShellCommand("start", 'u', "Start", s -> true, s -> {}),
+        new ShellCommand("stop", 'p', "Stop", s -> true, s -> {}),
+        new ShellCommand("restart", 't', "Restart", s -> true, s -> {}),
+        new ShellCommand("restage", 'g', "Restage", s -> true, s -> {}),
         new ShellCommand("refresh", 'r', "Refresh", s -> true, s -> {})),
         ShellCommands.create().stream()).toList();
     ShellState state = new ShellState(() -> Toolkit.text("Root"), commands,

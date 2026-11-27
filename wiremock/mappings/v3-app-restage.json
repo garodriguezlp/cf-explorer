@@ -1,0 +1,116 @@
+{
+  "mappings": [
+    {
+      "name": "CF API v3 — GET /v3/apps/*/packages",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/v3/apps/[^/]+/packages",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 600,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "resources": [
+            {
+              "guid": "pkg-guid-0001",
+              "state": "READY"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — POST /v3/builds",
+      "scenarioName": "restage-build",
+      "newScenarioState": "POLL_1",
+      "request": {
+        "method": "POST",
+        "urlPath": "/v3/builds",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 800,
+        "status": 201,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "guid": "build-guid-0001",
+          "state": "STAGING"
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — GET /v3/builds/* (staging)",
+      "scenarioName": "restage-build",
+      "requiredScenarioState": "POLL_1",
+      "newScenarioState": "POLL_2",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/v3/builds/[^/]+",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 800,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "guid": "build-guid-0001",
+          "state": "STAGING"
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — GET /v3/builds/* (staged)",
+      "scenarioName": "restage-build",
+      "newScenarioState": "Started",
+      "priority": 5,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/v3/builds/[^/]+",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 800,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "guid": "build-guid-0001",
+          "state": "STAGED",
+          "droplet": {
+            "guid": "droplet-guid-0001"
+          }
+        }
+      }
+    },
+    {
+      "name": "CF API v3 — PATCH /v3/apps/*/relationships/current_droplet",
+      "request": {
+        "method": "PATCH",
+        "urlPathPattern": "/v3/apps/[^/]+/relationships/current_droplet",
+        "headers": {
+          "Authorization": { "matches": "Bearer .+" }
+        }
+      },
+      "response": {
+        "fixedDelayMilliseconds": 500,
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "data": {
+            "guid": "droplet-guid-0001"
+          }
+        }
+      }
+    }
+  ]
+}

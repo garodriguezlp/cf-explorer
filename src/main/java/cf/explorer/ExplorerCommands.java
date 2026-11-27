@@ -9,23 +9,30 @@ import cf.explorer.browser.BrowserLauncher;
 import cf.explorer.catalog.ApplicationCatalog;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppLifecycleService;
+import cf.explorer.lifecycle.AppLifecycleService.Operation;
+import cf.explorer.model.Activity;
 import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
+import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.EnvExportPage;
 import cf.explorer.ui.ErrorMessages;
 import cf.explorer.ui.KeystoreViewPage;
+import cf.explorer.ui.LoadingView;
 import dev.tamboui.style.Color;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 
@@ -46,7 +53,7 @@ public final class ExplorerCommands {
       Consumer<Runnable> dispatch) {
     Objects.requireNonNull(refreshLoader);
     return create(catalogPage, progress -> refreshLoader.get(), envExportService, cfWebUrl,
-        browserLauncher, keystoreService, worker, dispatch);
+        browserLauncher, keystoreService, null, null, worker, dispatch);
   }
 
   /** Registers the commands; {@code refreshLoader} reports progress to the catalog page. */
@@ -57,6 +64,25 @@ public final class ExplorerCommands {
       String cfWebUrl,
       BrowserLauncher browserLauncher,
       KeystoreService keystoreService,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    return create(catalogPage, refreshLoader, envExportService, cfWebUrl, browserLauncher,
+        keystoreService, null, null, worker, dispatch);
+  }
+
+  /**
+   * Registers all commands including application lifecycle operations ({@code /start},
+   * {@code /stop}, {@code /restart}, {@code /restage}) when {@code lifecycleService} is provided.
+   */
+  public static List<ShellCommand> create(
+      ApplicationCatalogPage catalogPage,
+      ApplicationCatalogPage.ProgressLoader refreshLoader,
+      EnvExportService envExportService,
+      String cfWebUrl,
+      BrowserLauncher browserLauncher,
+      KeystoreService keystoreService,
+      AppLifecycleService lifecycleService,
+      String envProfile,
       Executor worker,
       Consumer<Runnable> dispatch) {
     Objects.requireNonNull(catalogPage);
@@ -159,6 +185,20 @@ public final class ExplorerCommands {
           });
         }));
 
+    if (lifecycleService != null) {
+      commands.add(lifecycleCommand(Operation.START, "Start selected app",
+          app -> !"STARTED".equalsIgnoreCase(app.state()),
+          catalogPage, lifecycleService, envProfile, worker, dispatch));
+      commands.add(lifecycleCommand(Operation.STOP, "Stop selected app",
+          app -> !"STOPPED".equalsIgnoreCase(app.state()),
+          catalogPage, lifecycleService, envProfile, worker, dispatch));
+      commands.add(lifecycleCommand(Operation.RESTART, "Restart selected app",
+          app -> true, catalogPage, lifecycleService, envProfile, worker, dispatch));
+      commands.add(lifecycleCommand(Operation.RESTAGE,
+          "Restage selected app from its latest ready package",
+          app -> true, catalogPage, lifecycleService, envProfile, worker, dispatch));
+    }
+
     commands.add(new ShellCommand(
         "refresh",
         'r',
@@ -169,6 +209,114 @@ public final class ExplorerCommands {
 
     commands.addAll(ShellCommands.create());
     return List.copyOf(commands);
+  }
+
+  private static ShellCommand lifecycleCommand(
+      Operation op,
+      String description,
+      Predicate<ApplicationCatalog.App> statePredicate,
+      ApplicationCatalogPage catalogPage,
+      AppLifecycleService lifecycleService,
+      String envProfile,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    Predicate<ShellState> available = state -> {
+      ApplicationCatalog.App app = state.selected(ApplicationCatalog.App.class);
+      return app != null && !catalogPage.isOperationInFlight(app.guid())
+          && statePredicate.test(app);
+    };
+    return new ShellCommand(
+        op.commandName(),
+        op.shortcut(),
+        description,
+        available,
+        state -> {
+          ApplicationCatalog.App app = state.selected(ApplicationCatalog.App.class);
+          if (app == null || catalogPage.isOperationInFlight(app.guid())
+              || !statePredicate.test(app)) {
+            return;
+          }
+          String envSuffix = envProfile != null && !envProfile.isBlank()
+              ? " [" + envProfile + "]" : "";
+          String prompt = op.verb() + " " + app.name() + " in " + app.orgName()
+              + " \u203a " + app.spaceName() + envSuffix + "?";
+          state.requestConfirmation(prompt, () -> runLifecycleOperation(
+              op, app, catalogPage, lifecycleService, state, worker, dispatch));
+        });
+  }
+
+  private static void runLifecycleOperation(
+      Operation op,
+      ApplicationCatalog.App app,
+      ApplicationCatalogPage catalogPage,
+      AppLifecycleService lifecycleService,
+      ShellState state,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    if (catalogPage.isOperationInFlight(app.guid())) {
+      return;
+    }
+    Activity started = catalogPage.startOperation(app, op.badgeLabel());
+    state.showProgress(op.presentParticiple() + " " + app.name() + " in background...");
+    Consumer<String> stepListener = stepBadge -> {
+      try {
+        dispatch.accept(() -> {
+          if (!state.quitRequested()) {
+            catalogPage.updateOperationBadge(app.guid(), stepBadge);
+          }
+        });
+      } catch (RuntimeException ex) {
+        LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+      }
+    };
+    try {
+      CompletableFuture.supplyAsync(() -> {
+        try {
+          return Objects.requireNonNull(
+              lifecycleService.execute(op, app, stepListener, () -> !state.quitRequested()));
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          throw new CompletionException(ex);
+        } catch (IOException ex) {
+          throw new CompletionException(ex);
+        }
+      }, worker).whenComplete((updated, error) -> {
+        Throwable cause = error == null ? null : unwrap(error);
+        if (cause != null && !(cause instanceof CancellationException)) {
+          LOG.warning(op.verb() + " failed (" + cause.getClass().getName() + ")");
+        }
+        started.afterAtLeast(catalogPage.minimumWait(), () -> {
+          try {
+            dispatch.accept(() -> {
+              if (state.quitRequested()) {
+                return;
+              }
+              if (cause == null) {
+                catalogPage.finishOperation(app.guid(), updated);
+                long seconds = started.elapsed().toSeconds();
+                String took = seconds >= 1
+                    ? " (" + LoadingView.shortDuration(started.elapsed()) + ")" : "";
+                state.showSuccess(op.pastParticiple() + " " + app.name()
+                    + " \u2192 " + updated.state() + took);
+              } else {
+                catalogPage.finishOperation(app.guid(), null);
+                if (!(cause instanceof CancellationException)) {
+                  state.showError(op.verb() + " failed for " + app.name() + ": "
+                      + ErrorMessages.describe(cause));
+                }
+              }
+            });
+          } catch (RuntimeException ex) {
+            LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+          }
+        });
+      });
+    } catch (RejectedExecutionException ex) {
+      LOG.warning(op.verb() + " failed (" + ex.getClass().getName() + ")");
+      catalogPage.finishOperation(app.guid(), null);
+      state.showError(op.verb() + " failed for " + app.name()
+          + ": The background worker is unavailable.");
+    }
   }
 
   private static ShellPage safeErrorPage(String title, String message) {

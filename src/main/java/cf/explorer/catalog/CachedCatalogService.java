@@ -1,5 +1,6 @@
 package cf.explorer.catalog;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
@@ -73,6 +74,18 @@ public final class CachedCatalogService {
   public ApplicationCatalog refresh(CatalogProgress progress)
       throws IOException, InterruptedException {
     return fetchLiveAndUpdateCache(Objects.requireNonNull(progress));
+  }
+
+  /** Updates a single cached app entry on disk if a cache is present; failures are non-fatal. */
+  public void updateCachedApp(JsonNode updatedApp) {
+    if (updatedApp == null) {
+      return;
+    }
+    try {
+      cacheStore.updateApp(updatedApp);
+    } catch (IOException | RuntimeException ex) {
+      LOG.warning("Catalog cache app update failed (" + ex.getClass().getName() + ")");
+    }
   }
 
   private ApplicationCatalog fetchLiveAndUpdateCache(CatalogProgress progress)

@@ -10,7 +10,19 @@ public record ApplicationCatalog(int organizations, int spaces, List<App> apps) 
   }
 
   public record App(String guid, String name, String state, String spaceGuid, String spaceName,
-      String orgGuid, String orgName, String createdAt, String updatedAt) {}
+      String orgGuid, String orgName, String createdAt, String updatedAt) {
+    public App withState(String newState, String newUpdatedAt) {
+      return new App(guid, name, newState, spaceGuid, spaceName, orgGuid, orgName, createdAt,
+          newUpdatedAt != null && !newUpdatedAt.isBlank() ? newUpdatedAt : updatedAt);
+    }
+  }
+
+  public ApplicationCatalog withUpdatedApp(App updated) {
+    List<App> next = apps.stream()
+        .map(existing -> existing.guid().equals(updated.guid()) ? updated : existing)
+        .toList();
+    return new ApplicationCatalog(organizations, spaces, next);
+  }
 
   public List<App> filter(String query) {
     if (query.isBlank()) {
