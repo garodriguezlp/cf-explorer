@@ -85,6 +85,7 @@ command view lists each command's shortcut.
 | `/stop` | `Ctrl+P` | Selected app is not `STOPPED` | Prompts for confirmation, stops the app in the background, and updates the catalog and cache |
 | `/restart` | `Ctrl+T` | An app is selected | Prompts for confirmation, restarts the app in the background, and updates the catalog and cache |
 | `/restage` | `Ctrl+G` | An app is selected | Prompts for confirmation, stages a new build from the latest ready package, assigns the droplet, and restarts the app in the background |
+| `/delete` | | On the catalog with an app selected | Deletes the app in two steps: a red inline prompt that defaults to No (`Enter` cancels, only `y` continues), then a dedicated danger page showing the app, org, space, and profile where you must type `yes` and press `Enter`. Runs in the background and removes the app from the catalog and cache |
 | `/new` | `Ctrl+N` | Inside `/env` | Prompts for `KEY=VALUE` (or `Key` then `Value`), confirms, and stages a new variable |
 | `/set` | `Enter` | Inside `/env` with a variable selected | Pre-fills the current value for in-place editing, confirms, and stages an update |
 | `/delete` | | Inside `/env` with a variable selected | Confirms and stages deletion of the selected variable |
@@ -123,6 +124,12 @@ terminal:
   working. The app's row (`STARTING`, `STOPPING`, `RESTARTING`, `STAGING 1/4`…`4/4`)
   and the `Apps` panel header animate until completion, when a `✓` / `✗` status
   notification appears and the local cache updates.
+- **`/delete`** never runs on a single keypress. Step 1 is a red `Danger` prompt
+  whose default is No (`Enter`, `Esc`, or `n` cancel; only `y` continues). Step 2
+  opens a dedicated page listing the app, organization, space, profile, state, and
+  GUID, plus what Cloud Foundry will remove; deletion starts only after you type
+  `yes` and press `Enter` (`Esc` backs out). The row shows `DELETING` until Cloud
+  Foundry's deletion job finishes, then the app leaves the catalog and the cache.
 - **`/refresh`** keeps the catalog usable. The title and status line show a spinner
   and progress until the new catalog arrives.
 - **`/open`** shows a spinner in the status line until the browser launches.

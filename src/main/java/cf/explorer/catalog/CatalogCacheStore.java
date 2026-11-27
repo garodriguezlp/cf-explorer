@@ -105,6 +105,26 @@ public final class CatalogCacheStore {
     }
   }
 
+  /** Removes a deleted application from {@code apps.json} when a full catalog cache exists. */
+  public synchronized void removeApp(String appGuid) throws IOException {
+    Objects.requireNonNull(appGuid);
+    Path appsPath = appsPath();
+    if (appGuid.isBlank() || !Files.exists(organizationsPath()) || !Files.exists(spacesPath())
+        || !Files.exists(appsPath)) {
+      return;
+    }
+    List<JsonNode> apps = JSON.readValue(appsPath.toFile(), NODE_LIST);
+    if (apps == null) {
+      return;
+    }
+    List<JsonNode> next = apps.stream()
+        .filter(existing -> !appGuid.equals(existing.path("guid").asText()))
+        .toList();
+    if (next.size() != apps.size()) {
+      writeAtomically(appsPath, next);
+    }
+  }
+
   public void clear() throws IOException {
     Files.deleteIfExists(organizationsPath());
     Files.deleteIfExists(spacesPath());

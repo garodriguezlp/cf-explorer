@@ -86,6 +86,17 @@ public final class CloudFoundryCatalogClient {
     }
   }
 
+  /**
+   * Cloud Foundry v3 asynchronous job status ({@code PROCESSING}, {@code POLLING},
+   * {@code COMPLETE}, or {@code FAILED}) with the first error title, if any.
+   */
+  public record JobResult(String guid, String state, String errorTitle) {
+    public JobResult {
+      Objects.requireNonNull(guid);
+      Objects.requireNonNull(state);
+    }
+  }
+
   public CloudFoundryCatalogClient(String uaaUrl, String apiUrl, String username, String password) {
     this(uaaUrl, apiUrl, username, password, false);
   }
@@ -307,6 +318,50 @@ public final class CloudFoundryCatalogClient {
         "Assign current droplet");
   }
 
+  /**
+   * Deletes an application via Cloud Foundry v3. Cloud Foundry answers {@code 202 Accepted} and
+   * deletes asynchronously; this returns the job GUID from the {@code Location} header, or
+   * {@code null} when no job was reported.
+   */
+  public String deleteApp(String appGuid) throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(appGuid, "App GUID");
+    HttpResponse<String> response =
+        sendAuthorized("DELETE", "/v3/apps/" + encodedGuid, null, "Delete app");
+    if (response.statusCode() == 422) {
+      throw new CloudFoundryException("Delete app was rejected by Cloud Foundry (HTTP 422).");
+    }
+    checkStatus(response, "Delete app");
+    return response.headers().firstValue("Location")
+        .map(CloudFoundryCatalogClient::jobGuid).orElse(null);
+  }
+
+  /** Polls a Cloud Foundry v3 asynchronous job. */
+  public JobResult getJob(String jobGuid) throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(jobGuid, "Job GUID");
+    JsonNode response = sendAuthorizedJson("GET", "/v3/jobs/" + encodedGuid, null, "Poll job");
+    JsonNode errors = response.path("errors");
+    String errorTitle = errors.isArray() && !errors.isEmpty()
+        ? optional(errors.get(0), "title") : null;
+    return new JobResult(required(response, "guid"), required(response, "state"), errorTitle);
+  }
+
+  static String jobGuid(String location) {
+    if (location == null) {
+      return null;
+    }
+    int index = location.lastIndexOf("/jobs/");
+    if (index < 0) {
+      return null;
+    }
+    String guid = location.substring(index + "/jobs/".length());
+    int query = guid.indexOf('?');
+    if (query >= 0) {
+      guid = guid.substring(0, query);
+    }
+    guid = guid.replaceAll("/+$", "");
+    return guid.isBlank() ? null : guid;
+  }
+
   private static BuildResult parseBuild(JsonNode response) throws IOException {
     String guid = required(response, "guid");
     String state = required(response, "state");
@@ -377,6 +432,11 @@ public final class CloudFoundryCatalogClient {
 
   private JsonNode sendAuthorizedJson(String method, String path, String jsonBody,
       String operation) throws IOException, InterruptedException {
+    return parseJsonResponse(sendAuthorized(method, path, jsonBody, operation), operation);
+  }
+
+  private HttpResponse<String> sendAuthorized(String method, String path, String jsonBody,
+      String operation) throws IOException, InterruptedException {
     String token = accessToken(false);
     HttpResponse<String> response = http.send(
         authorizedRequest(method, path, jsonBody, token), jsonBody, operation);
@@ -386,7 +446,7 @@ public final class CloudFoundryCatalogClient {
       response = http.send(
           authorizedRequest(method, path, jsonBody, refreshed), jsonBody, operation);
     }
-    return parseJsonResponse(response, operation);
+    return response;
   }
 
   private interface PageListener {
@@ -442,6 +502,21 @@ public final class CloudFoundryCatalogClient {
 
   private static JsonNode parseJsonResponse(HttpResponse<String> response, String operation)
       throws IOException {
+    checkStatus(response, operation);
+    JsonNode json;
+    try {
+      json = JSON.readTree(response.body());
+    } catch (IOException ex) {
+      throw new CloudFoundryException(operation + " returned a non-JSON response.", ex);
+    }
+    if (json == null || !json.isObject()) {
+      throw new CloudFoundryException(operation + " returned an unexpected response.");
+    }
+    return json;
+  }
+
+  private static void checkStatus(HttpResponse<String> response, String operation)
+      throws IOException {
     int status = response.statusCode();
     if (status == 401 || status == 403) {
       throw new CloudFoundryException(operation + " was rejected (HTTP " + status
@@ -457,16 +532,6 @@ public final class CloudFoundryCatalogClient {
     if (status < 200 || status >= 300) {
       throw new CloudFoundryException(operation + " failed (HTTP " + status + ").");
     }
-    JsonNode json;
-    try {
-      json = JSON.readTree(response.body());
-    } catch (IOException ex) {
-      throw new CloudFoundryException(operation + " returned a non-JSON response.", ex);
-    }
-    if (json == null || !json.isObject()) {
-      throw new CloudFoundryException(operation + " returned an unexpected response.");
-    }
-    return json;
   }
 
   private static String relationship(JsonNode item, String name) throws IOException {

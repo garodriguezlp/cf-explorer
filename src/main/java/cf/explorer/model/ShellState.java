@@ -32,12 +32,21 @@ public final class ShellState {
   /** Visual severity of the current status message. */
   public enum StatusKind { INFO, SUCCESS, ERROR }
 
-  /** An inline confirmation prompt awaiting {@code Enter}/{@code y} or {@code Esc}/{@code n}. */
-  public record Confirmation(String prompt, Runnable onConfirm, Runnable onCancel) {
+  /**
+   * An inline confirmation prompt awaiting {@code Enter}/{@code y} or {@code Esc}/{@code n}. A
+   * {@code dangerous} confirmation defaults to No: only {@code y} accepts, and {@code Enter}
+   * cancels like {@code Esc}/{@code n}.
+   */
+  public record Confirmation(String prompt, Runnable onConfirm, Runnable onCancel,
+      boolean dangerous) {
     public Confirmation {
       Objects.requireNonNull(prompt);
       Objects.requireNonNull(onConfirm);
       Objects.requireNonNull(onCancel);
+    }
+
+    public Confirmation(String prompt, Runnable onConfirm, Runnable onCancel) {
+      this(prompt, onConfirm, onCancel, false);
     }
 
     public Confirmation(String prompt, Runnable onConfirm) {
@@ -291,7 +300,19 @@ public final class ShellState {
 
   /** Prompts inline confirmation with custom handlers for both confirm and cancel. */
   public void requestConfirmation(String prompt, Runnable onConfirm, Runnable onCancel) {
-    confirmation = new Confirmation(prompt, onConfirm, onCancel);
+    setConfirmation(new Confirmation(prompt, onConfirm, onCancel));
+  }
+
+  /**
+   * Prompts inline confirmation for a destructive action. The answer defaults to No: only
+   * {@code y} runs {@code onConfirm}; {@code Enter}, {@code Esc}, and {@code n} cancel.
+   */
+  public void requestDangerousConfirmation(String prompt, Runnable onConfirm) {
+    setConfirmation(new Confirmation(prompt, onConfirm, () -> showStatus("Cancelled."), true));
+  }
+
+  private void setConfirmation(Confirmation next) {
+    confirmation = next;
     command = null;
     cursor = 0;
     status = "";

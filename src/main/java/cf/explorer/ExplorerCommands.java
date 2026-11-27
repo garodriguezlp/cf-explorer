@@ -10,6 +10,7 @@ import cf.explorer.catalog.ApplicationCatalog;
 import cf.explorer.env.EnvEditorService;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppDeletionService;
 import cf.explorer.lifecycle.AppLifecycleService;
 import cf.explorer.lifecycle.AppLifecycleService.Operation;
 import cf.explorer.model.Activity;
@@ -17,6 +18,7 @@ import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.model.ShellState;
+import cf.explorer.ui.AppDeletePage;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.EnvEditorPage;
 import cf.explorer.ui.EnvExportPage;
@@ -106,6 +108,27 @@ public final class ExplorerCommands {
       KeystoreService keystoreService,
       AppLifecycleService lifecycleService,
       EnvEditorService envEditorService,
+      String envProfile,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    return create(catalogPage, refreshLoader, envExportService, cfWebUrl, browserLauncher,
+        keystoreService, lifecycleService, envEditorService, null, envProfile, worker, dispatch);
+  }
+
+  /**
+   * Registers all commands, including the two-step {@code /delete} for applications when
+   * {@code deletionService} is provided.
+   */
+  public static List<ShellCommand> create(
+      ApplicationCatalogPage catalogPage,
+      ApplicationCatalogPage.ProgressLoader refreshLoader,
+      EnvExportService envExportService,
+      String cfWebUrl,
+      BrowserLauncher browserLauncher,
+      KeystoreService keystoreService,
+      AppLifecycleService lifecycleService,
+      EnvEditorService envEditorService,
+      AppDeletionService deletionService,
       String envProfile,
       Executor worker,
       Consumer<Runnable> dispatch) {
@@ -282,20 +305,26 @@ public final class ExplorerCommands {
               ed.beginSet(state);
             }
           }));
+    }
+    if (envEditorService != null || deletionService != null) {
       commands.add(new ShellCommand(
           "delete",
-          "Stage deletion of selected environment variable",
+          envEditorService == null ? "Delete selected app from Cloud Foundry (asks twice)"
+              : deletionService == null ? "Stage deletion of selected environment variable"
+              : "Delete selected app (asks twice); in /env, stage variable deletion",
+          state -> envDeleteAvailable(state)
+              || appDeleteAvailable(state, catalogPage, deletionService),
           state -> {
             EnvEditorPage ed = activeEnvEditor(state);
-            return ed != null && !ed.isApplying()
-                && ed.selected() != null && !ed.selected().isDeleted();
-          },
-          state -> {
-            EnvEditorPage ed = activeEnvEditor(state);
-            if (ed != null && !ed.isApplying()) {
+            if (envDeleteAvailable(state)) {
               ed.beginDelete(state);
+            } else if (appDeleteAvailable(state, catalogPage, deletionService)) {
+              beginAppDeletion(state.selected(ApplicationCatalog.App.class), catalogPage,
+                  deletionService, envProfile, state, worker, dispatch);
             }
           }));
+    }
+    if (envEditorService != null) {
       commands.add(new ShellCommand(
           "undo",
           "Revert staged change on selected variable",
@@ -384,6 +413,112 @@ public final class ExplorerCommands {
 
   private static EnvEditorPage activeEnvEditor(ShellState state) {
     return state.activePage() instanceof EnvEditorPage editor ? editor : null;
+  }
+
+  private static boolean envDeleteAvailable(ShellState state) {
+    EnvEditorPage ed = activeEnvEditor(state);
+    return ed != null && !ed.isApplying() && ed.selected() != null && !ed.selected().isDeleted();
+  }
+
+  private static boolean appDeleteAvailable(ShellState state, ApplicationCatalogPage catalogPage,
+      AppDeletionService deletionService) {
+    if (deletionService == null || state.page() != null) {
+      return false;
+    }
+    ApplicationCatalog.App app = state.selected(ApplicationCatalog.App.class);
+    return app != null && !catalogPage.isOperationInFlight(app.guid());
+  }
+
+  /**
+   * Step 1 of 2: a red inline prompt that defaults to No (Enter cancels; only {@code y}
+   * continues). Continuing opens {@link AppDeletePage}, where the user must type {@code yes}.
+   */
+  private static void beginAppDeletion(
+      ApplicationCatalog.App app,
+      ApplicationCatalogPage catalogPage,
+      AppDeletionService deletionService,
+      String envProfile,
+      ShellState state,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    state.requestDangerousConfirmation(
+        "Step 1/2: Delete " + appTarget(app, envProfile) + "?",
+        () -> {
+          if (catalogPage.isOperationInFlight(app.guid())) {
+            state.showError("Another operation is running on " + app.name() + ". Try again later.");
+            return;
+          }
+          state.openPage(new AppDeletePage(app, envProfile, state, () -> runAppDeletion(
+              app, catalogPage, deletionService, state, worker, dispatch)));
+          state.showStatus("Step 2 of 2: type " + AppDeletePage.CONFIRMATION_WORD
+              + " and press Enter to delete " + app.name() + ", or press Esc to cancel.");
+        });
+  }
+
+  private static void runAppDeletion(
+      ApplicationCatalog.App app,
+      ApplicationCatalogPage catalogPage,
+      AppDeletionService deletionService,
+      ShellState state,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    if (state.activePage() instanceof AppDeletePage) {
+      state.backNow();
+    }
+    if (catalogPage.isOperationInFlight(app.guid())) {
+      state.showError("Another operation is running on " + app.name() + ". Try again later.");
+      return;
+    }
+    String location = app.orgName() + " \u203a " + app.spaceName();
+    Activity started = catalogPage.startOperation(app, "DELETING");
+    state.showProgress("Deleting " + app.name() + " in background...");
+    try {
+      CompletableFuture.runAsync(() -> {
+        try (var opMdc = MDC.putCloseable("op", "delete");
+             var appMdc = MDC.putCloseable("app", app.name())) {
+          deletionService.delete(app, () -> !state.quitRequested());
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          throw new CompletionException(ex);
+        } catch (IOException ex) {
+          throw new CompletionException(ex);
+        }
+      }, worker).whenComplete((ignored, error) -> {
+        Throwable cause = error == null ? null : unwrap(error);
+        if (cause != null && !(cause instanceof CancellationException)) {
+          LOG.warn("Delete failed for {} ({})", app.name(), app.guid(), cause);
+        }
+        started.afterAtLeast(catalogPage.minimumWait(), () -> {
+          try {
+            dispatch.accept(() -> {
+              if (state.quitRequested()) {
+                return;
+              }
+              if (cause == null) {
+                catalogPage.removeApp(app.guid());
+                long seconds = started.elapsed().toSeconds();
+                String took = seconds >= 1
+                    ? " (" + LoadingView.shortDuration(started.elapsed()) + ")" : "";
+                state.showSuccess("Deleted " + app.name() + " from " + location + took);
+              } else {
+                catalogPage.finishOperation(app.guid(), null);
+                if (!(cause instanceof CancellationException)) {
+                  state.showError("Delete failed for " + app.name() + ": "
+                      + ErrorMessages.describe(cause));
+                }
+              }
+            });
+          } catch (RuntimeException ex) {
+            LOG.warn("Render dispatch failed", ex);
+          }
+        });
+      });
+    } catch (RejectedExecutionException ex) {
+      LOG.warn("Delete rejected for {} ({})", app.name(), app.guid(), ex);
+      catalogPage.finishOperation(app.guid(), null);
+      state.showError("Delete failed for " + app.name()
+          + ": The background worker is unavailable.");
+    }
   }
 
   private static void runEnvApply(

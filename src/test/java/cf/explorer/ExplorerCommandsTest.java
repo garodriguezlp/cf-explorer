@@ -11,9 +11,11 @@ import cf.explorer.catalog.CloudFoundryException;
 import cf.explorer.env.EnvEditorService;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppDeletionService;
 import cf.explorer.lifecycle.AppLifecycleService;
 import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
+import cf.explorer.ui.AppDeletePage;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.ShellView;
 import dev.tamboui.buffer.Buffer;
@@ -28,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -590,6 +593,153 @@ class ExplorerCommandsTest {
     dispatch.remove().run();
     assertTrue(restarted.get());
     assertEquals("\u2713 Restarted billing-api \u2192 STARTED", state.status());
+  }
+
+  @Test
+  void deleteAppAsksDefaultNoInlineThenRequiresTypedYesOnDedicatedPage() {
+    var billing = APP;
+    var worker2 = new ApplicationCatalog.App(
+        "app-2", "auth-worker", "STOPPED", "space-1", "production", "org-1", "finance",
+        "2024-01-01", "2024-01-02");
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> dispatch = new ArrayDeque<>();
+    List<String> deleteRequests = new ArrayList<>();
+    List<String> cacheRemovals = new ArrayList<>();
+    AtomicBoolean failDelete = new AtomicBoolean(false);
+
+    AppDeletionService.Api api = new AppDeletionService.Api() {
+      @Override
+      public String deleteApp(String appGuid) throws IOException {
+        if (failDelete.get()) {
+          throw new CloudFoundryException("Delete app was rejected (HTTP 403).");
+        }
+        deleteRequests.add(appGuid);
+        return "job-1";
+      }
+
+      @Override
+      public CloudFoundryCatalogClient.JobResult getJob(String jobGuid) {
+        return new CloudFoundryCatalogClient.JobResult(jobGuid, "COMPLETE", null);
+      }
+    };
+    AppDeletionService deletion = new AppDeletionService(
+        api, cacheRemovals::add, Duration.ofMillis(1), 3, d -> {});
+
+    ApplicationCatalogPage catalogPage = new ApplicationCatalogPage();
+    catalogPage.loaded(new ApplicationCatalog(1, 1, List.of(billing, worker2)));
+    List<ShellCommand> commands = ExplorerCommands.create(
+        catalogPage,
+        progress -> new ApplicationCatalog(1, 1, List.of(billing, worker2)),
+        new EnvExportService(g -> Map.of(), temp.resolve("envs"), List.of(), Map.of(), false, t -> true),
+        "https://apps.example.com",
+        url -> {},
+        new KeystoreService(g -> Map.of(), "K", "P", temp.resolve("jks"), false, t -> true),
+        null,
+        null,
+        deletion,
+        "prod",
+        worker::add,
+        dispatch::add);
+    ShellState state = new ShellState(catalogPage, commands, worker::add, dispatch::add);
+
+    type(state, "/");
+    assertEquals(List.of("export", "open", "keystore", "delete", "refresh", "quit"),
+        state.suggestions().stream().map(ShellCommand::name).toList());
+    state.cancel();
+
+    // Step 1: red inline prompt; Enter is the default and means No
+    type(state, "/delete");
+    state.confirm();
+    String danger = render(state);
+    assertTrue(danger.contains(" Danger "), danger);
+    assertTrue(danger.contains("Step 1/2: Delete billing-api in finance \u203a production [prod]?"),
+        danger);
+    assertTrue(danger.contains("[y] continue  [Enter/Esc/n] cancel (default: No)"), danger);
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertNull(state.confirmation());
+    assertNull(state.page());
+    assertEquals("Cancelled.", state.status());
+
+    // 'y' continues to the dedicated Step 2 page
+    type(state, "/delete");
+    state.confirm();
+    ShellView.handleKey(KeyEvent.ofChar('y'), state, () -> {});
+    assertTrue(state.activePage() instanceof AppDeletePage);
+    String page = render(state);
+    assertTrue(page.contains("Delete Application: Step 2 of 2"), page);
+    assertTrue(page.contains("YOU ARE ABOUT TO PERMANENTLY DELETE AN APPLICATION"), page);
+    assertTrue(page.contains("billing-api"), page);
+    assertTrue(page.contains("prod"), page);
+    assertTrue(page.contains("This cannot be undone."), page);
+    assertTrue(page.contains("Type yes to delete billing-api"), page);
+    assertTrue(page.contains("Not armed"), page);
+
+    // App commands are unavailable on the delete page, and '/' is typed, not a command
+    assertTrue(state.runShortcut('e'));
+    assertEquals("Command unavailable: /export", state.status());
+    ShellView.handleKey(KeyEvent.ofChar('/'), state, () -> {});
+    assertNull(state.command());
+    assertEquals("/", state.activePage().inputValue());
+
+    // Enter without exactly "yes" never deletes and clears the box
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertTrue(state.status().contains("Not deleted: you must type yes exactly"), state.status());
+    assertEquals("", state.activePage().inputValue());
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertTrue(state.status().contains("Type yes and press Enter to delete billing-api"),
+        state.status());
+    ShellView.handleKey(KeyEvent.ofChar('y'), state, () -> {});
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertTrue(state.activePage() instanceof AppDeletePage);
+    assertTrue(worker.isEmpty());
+
+    // Esc leaves without deleting
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertNull(state.page());
+    assertEquals("Deletion cancelled. billing-api was not deleted.", state.status());
+    assertTrue(deleteRequests.isEmpty());
+
+    // Full flow: y, type "yes", Enter -> back to catalog with a DELETING badge
+    type(state, "/delete");
+    state.confirm();
+    ShellView.handleKey(KeyEvent.ofChar('y'), state, () -> {});
+    for (char c : "yes".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    assertTrue(render(state).contains("ARMED: Enter will delete billing-api now."));
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    assertNull(state.page());
+    assertEquals(1, worker.size());
+    String deleting = render(state);
+    assertTrue(deleting.contains("DELETING"), deleting);
+    type(state, "/");
+    assertFalse(state.suggestions().stream().anyMatch(c -> c.name().equals("delete")),
+        "a second delete is locked while the first is in flight");
+    state.cancel();
+
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals(List.of("app-1"), deleteRequests);
+    assertEquals(List.of("app-1"), cacheRemovals);
+    assertEquals("\u2713 Deleted billing-api from finance \u203a production", state.status());
+    assertEquals("auth-worker", state.selected(ApplicationCatalog.App.class).name());
+    assertTrue(render(state).contains("Apps  1/1"), "billing-api left the catalog");
+
+    // Failures are reported safely and keep the app in the catalog
+    failDelete.set(true);
+    type(state, "/delete");
+    state.confirm();
+    ShellView.handleKey(KeyEvent.ofChar('Y'), state, () -> {});
+    for (char c : "YES".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ENTER), state, () -> {});
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals(ShellState.StatusKind.ERROR, state.statusKind());
+    assertTrue(state.status().startsWith(
+        "\u2717 Delete failed for auth-worker: Delete app was rejected"), state.status());
+    assertEquals("auth-worker", state.selected(ApplicationCatalog.App.class).name());
   }
 
   private static void type(ShellState state, String input) {
