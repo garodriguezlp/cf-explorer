@@ -1,46 +1,98 @@
 package cf.explorer;
 
-import cf.explorer.model.ShellState;
-import cf.explorer.model.ShellCommands;
+import cf.explorer.browser.BrowserLauncher;
+import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CachedCatalogService;
+import cf.explorer.catalog.CatalogCacheStore;
 import cf.explorer.catalog.CloudFoundryCatalogClient;
+import cf.explorer.config.ExplorerConfig;
+import cf.explorer.export.EnvExportService;
+import cf.explorer.io.ClipboardSupport;
+import cf.explorer.keystore.KeystoreService;
+import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
 import cf.explorer.ui.ShellView;
 import dev.tamboui.toolkit.app.ToolkitApp;
 import dev.tamboui.toolkit.element.Element;
+import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 final class ExplorerScreen extends ToolkitApp {
-  private final CloudFoundryCatalogClient client;
+  private final ExplorerConfig config;
+  private final CachedCatalogService catalogService;
   private final ApplicationCatalogPage catalog = new ApplicationCatalogPage();
-  private final ShellState state = new ShellState(List.of(), ShellCommands.create(),
-      Function.identity(),
-      ForkJoinPool.commonPool(), action -> runner().runOnRenderThread(action));
+  private final ShellState state;
 
-  ExplorerScreen(String uaaUrl, String apiUrl, String username, String password) {
-    client = new CloudFoundryCatalogClient(uaaUrl, apiUrl, username, password);
-    state.setRootPage(catalog);
+  ExplorerScreen(ExplorerConfig config) {
+    this.config = Objects.requireNonNull(config);
+    CloudFoundryCatalogClient client = new CloudFoundryCatalogClient(
+        config.uaaUrl(), config.cfApiUrl(), config.cfUsername(), config.cfPassword());
+    this.catalogService = new CachedCatalogService(client, new CatalogCacheStore(config.cacheDir()));
+    ClipboardSupport clipboard = ClipboardSupport.system();
+    EnvExportService envExportService = new EnvExportService(
+        client::fetchEnvironmentVariables, config.envsDir(), config.excludeKeys(),
+        config.postProcessors(), config.copyToClipboard(), clipboard);
+    KeystoreService keystoreService = new KeystoreService(
+        client::fetchEnvironmentVariables, config.keystoreVar(), config.keystorePasswordVar(),
+        config.jksDir(), config.copyToClipboard(), clipboard);
+    Executor worker = ForkJoinPool.commonPool();
+    Consumer<Runnable> dispatch = action -> runner().runOnRenderThread(action);
+    this.state = new ShellState(
+        List.of(),
+        ExplorerCommands.create(
+            catalog,
+            this::refreshCatalog,
+            envExportService,
+            config.cfWebUrl(),
+            BrowserLauncher.system(),
+            keystoreService,
+            worker,
+            dispatch),
+        Function.identity(),
+        worker,
+        dispatch);
+    this.state.setRootPage(catalog);
   }
 
   @Override
   protected void onStart() {
-    catalog.startLoading(() -> {
-      try {
-        return client.load();
-      } catch (InterruptedException ex) {
-        Thread.currentThread().interrupt();
-        throw new CompletionException(ex);
-      } catch (java.io.IOException ex) {
-        throw new CompletionException(ex);
-      }
-    }, ForkJoinPool.commonPool(), action -> runner().runOnRenderThread(action),
+    catalog.startLoading(
+        this::loadInitialCatalog,
+        ForkJoinPool.commonPool(),
+        action -> runner().runOnRenderThread(action),
         () -> !state.quitRequested());
   }
 
   @Override
   protected Element render() {
     return ShellView.render(state, this::quit);
+  }
+
+  private ApplicationCatalog loadInitialCatalog() {
+    try {
+      return catalogService.load(config.fresh());
+    } catch (InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      throw new CompletionException(ex);
+    } catch (IOException ex) {
+      throw new CompletionException(ex);
+    }
+  }
+
+  private ApplicationCatalog refreshCatalog() {
+    try {
+      return catalogService.refresh();
+    } catch (InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      throw new CompletionException(ex);
+    } catch (IOException ex) {
+      throw new CompletionException(ex);
+    }
   }
 }

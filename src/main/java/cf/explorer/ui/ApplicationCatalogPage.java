@@ -45,6 +45,7 @@ public final class ApplicationCatalogPage implements ShellPage {
   private static final Logger LOG = Logger.getLogger(ApplicationCatalogPage.class.getName());
   private ApplicationCatalog catalog;
   private boolean failed;
+  private boolean refreshing;
   private long loadGeneration;
   private String filter = "";
   private int cursor;
@@ -52,24 +53,48 @@ public final class ApplicationCatalogPage implements ShellPage {
 
   public void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
       Consumer<Runnable> dispatch, BooleanSupplier active) {
+    startLoading(load, worker, dispatch, active, false, message -> {});
+  }
+
+  public void startRefresh(Supplier<ApplicationCatalog> load, Executor worker,
+      Consumer<Runnable> dispatch, BooleanSupplier active, Consumer<String> statusConsumer) {
+    startLoading(load, worker, dispatch, active, catalog != null, statusConsumer);
+  }
+
+  private void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
+      Consumer<Runnable> dispatch, BooleanSupplier active, boolean keepPrevious,
+      Consumer<String> statusConsumer) {
     Objects.requireNonNull(load);
     Objects.requireNonNull(worker);
     Objects.requireNonNull(dispatch);
     Objects.requireNonNull(active);
+    Objects.requireNonNull(statusConsumer);
     long generation = ++loadGeneration;
-    catalog = null;
-    failed = false;
+    if (!keepPrevious) {
+      catalog = null;
+      failed = false;
+      refreshing = false;
+    } else {
+      refreshing = true;
+      statusConsumer.accept("Refreshing catalog...");
+    }
     try {
       CompletableFuture.supplyAsync(() -> Objects.requireNonNull(load.get()), worker)
           .whenComplete((result, error) -> {
             if (error != null) {
-              logFailure("Catalog loading", error);
+              logFailure(keepPrevious ? "Catalog refresh" : "Catalog loading", error);
             }
             try {
               dispatch.accept(() -> {
                 if (active.getAsBoolean() && generation == loadGeneration) {
+                  refreshing = false;
                   if (error == null) {
                     loaded(result);
+                    if (keepPrevious) {
+                      statusConsumer.accept("Catalog refreshed.");
+                    }
+                  } else if (keepPrevious && catalog != null) {
+                    statusConsumer.accept("Catalog refresh failed. Keeping previous catalog.");
                   } else {
                     failed();
                   }
@@ -80,8 +105,13 @@ public final class ApplicationCatalogPage implements ShellPage {
             }
           });
     } catch (RejectedExecutionException ex) {
-      logFailure("Catalog loading", ex);
-      failed();
+      logFailure(keepPrevious ? "Catalog refresh" : "Catalog loading", ex);
+      refreshing = false;
+      if (keepPrevious && catalog != null) {
+        statusConsumer.accept("Catalog refresh failed. Keeping previous catalog.");
+      } else {
+        failed();
+      }
     }
   }
 
@@ -136,7 +166,8 @@ public final class ApplicationCatalogPage implements ShellPage {
   private Element renderCatalog(int width) {
     List<ApplicationCatalog.App> visible = catalog.filter(filter);
     String title = " Apps  " + visible.size() + "/" + catalog.apps().size()
-        + "  Orgs " + catalog.organizations() + "  Spaces " + catalog.spaces() + " ";
+        + "  Orgs " + catalog.organizations() + "  Spaces " + catalog.spaces()
+        + (refreshing ? "  [refreshing...] " : " ");
     if (visible.isEmpty()) {
       return panel(text(filter.isBlank() ? " No apps." : " No matching apps.").dim())
           .title(title).rounded().borderColor(Color.CYAN).fill();
