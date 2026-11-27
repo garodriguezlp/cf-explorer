@@ -12,6 +12,7 @@ import cf.explorer.model.ShellPage;
 import cf.explorer.model.ExampleWorkspace;
 import cf.explorer.catalog.ApplicationCatalog;
 import cf.explorer.catalog.CatalogProgress;
+import cf.explorer.env.EnvDraft;
 import dev.tamboui.buffer.Buffer;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
@@ -25,6 +26,7 @@ import dev.tamboui.tui.event.KeyEvent;
 import dev.tamboui.tui.event.KeyModifiers;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -289,6 +291,63 @@ class ShellViewTest {
       }
     }
     assertTrue(highlighted);
+  }
+
+  @Test
+  void envEditorHighlightsKeyAndValueMatchesInEscapedPreviews() {
+    EnvDraft draft = new EnvDraft(Map.of());
+    draft.stageSet("SETTING", "x\r\na\tb-c");
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    ShellState state = new ShellState(new EnvEditorPage(app, draft), ShellCommands.create(),
+        Runnable::run, Runnable::run);
+    keys(state, "setting AbC");
+
+    Buffer buffer = renderBuffer(state, 100, 24);
+    assertRowColors(buffer, "SETTING", Color.LIGHT_YELLOW, Color.LIGHT_YELLOW,
+        Color.LIGHT_YELLOW, Color.LIGHT_YELLOW, Color.LIGHT_YELLOW, Color.LIGHT_YELLOW,
+        Color.LIGHT_YELLOW);
+    assertRowColors(buffer, "x\\na\\tb-c", Color.LIGHT_GREEN, Color.LIGHT_GREEN,
+        Color.LIGHT_GREEN, Color.LIGHT_YELLOW, Color.LIGHT_GREEN, Color.LIGHT_GREEN,
+        Color.LIGHT_YELLOW, Color.LIGHT_GREEN, Color.LIGHT_YELLOW);
+  }
+
+  @Test
+  void envEditorHighlightsSubstringWithoutColoringTruncationOrEmptyPlaceholder() {
+    EnvDraft draft = new EnvDraft(Map.of("KEY", "hit-012345678901234567890-tail", "EMPTY", ""));
+    var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
+        "2024-01-01", "2024-01-02");
+    ShellState state = new ShellState(new EnvEditorPage(app, draft), ShellCommands.create(),
+        Runnable::run, Runnable::run);
+    keys(state, "hit tail");
+    Buffer buffer = renderBuffer(state, 40, 12);
+    assertRowColors(buffer, "hit-", Color.LIGHT_YELLOW, Color.LIGHT_YELLOW,
+        Color.LIGHT_YELLOW, Color.WHITE);
+    assertRowColors(buffer, "\u2026", Color.WHITE);
+
+    keys(state, KeyCode.ESCAPE);
+    keys(state, "empty");
+    assertRowColors(renderBuffer(state, 100, 24), "<empty>", Color.WHITE, Color.WHITE,
+        Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE);
+  }
+
+  private static void assertRowColors(Buffer buffer, String text, Color... colors) {
+    assertEquals(text.length(), colors.length);
+    for (int y = 0; y < buffer.height(); y++) {
+      StringBuilder row = new StringBuilder();
+      for (int x = 0; x < buffer.width(); x++) {
+        row.append(buffer.get(x, y).symbol());
+      }
+      int start = row.indexOf(text);
+      if (start >= 0 && row.indexOf(" = ") >= 0) {
+        for (int i = 0; i < text.length(); i++) {
+          assertEquals(colors[i], buffer.get(start + i, y).style().fg().orElse(null),
+              "Unexpected color at " + i + " in " + text);
+        }
+        return;
+      }
+    }
+    throw new AssertionError("Text not found in an env row: " + text);
   }
 
   @Test
