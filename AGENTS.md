@@ -36,7 +36,13 @@ Maven is the development build. Keep both working from the same sources:
 - Domain packages (`catalog`, `export`, `keystore`, `browser`, `config`) must not depend on
   `ui` or `model`.
 - Commands are registered in `ExplorerCommands`; availability predicates decide when they
-  appear in suggestions.
+  appear in suggestions. Command names are single lowercase words, and each command declares
+  a unique, mnemonic `Ctrl+<letter>` shortcut. `ShellCommand.RESERVED_SHORTCUTS` lists the
+  letters terminals reserve or alias (Ctrl+C/D/H/I/J/M/Q/S/W/Z), which commands cannot use.
+- Every wait shows feedback. Pages expose running work through `ShellPage.activity()`,
+  async pages use `ShellState.openAsyncPage`, and short background actions use
+  `ShellState.showProgress`. `ui.LoadingView` derives animation frames from elapsed time;
+  never sleep or block on the render thread to pace an animation.
 
 ## Security and errors
 
