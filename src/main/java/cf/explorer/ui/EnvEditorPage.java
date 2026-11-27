@@ -317,6 +317,11 @@ public final class EnvEditorPage implements ShellPage {
     } else if (promptMode == PromptMode.SET_VALUE) {
       String key = pendingKey;
       String value = promptInput;
+      String validationError = EnvDraft.validateKey(key);
+      if (validationError != null) {
+        state.showError(validationError);
+        return;
+      }
       cancelPrompt();
       state.requestConfirmation(
           "Stage update to " + key + " = " + previewInline(value, 36) + " for " + app.name() + "?",

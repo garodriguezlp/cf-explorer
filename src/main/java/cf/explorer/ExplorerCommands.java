@@ -36,11 +36,13 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /** Registers all Cloud Foundry shell commands against the active typed selection and workspace. */
 public final class ExplorerCommands {
-  private static final Logger LOG = Logger.getLogger(ExplorerCommands.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(ExplorerCommands.class);
 
   private ExplorerCommands() {}
 
@@ -129,13 +131,14 @@ public final class ExplorerCommands {
               return;
             }
             state.openAsyncPage("Loading environment for " + app.name(), () -> {
-              try {
+              try (var opMdc = MDC.putCloseable("op", "env");
+                   var appMdc = MDC.putCloseable("app", app.name())) {
                 return new EnvEditorPage(app, envEditorService.loadDraft(app), state);
               } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 throw new CompletionException(ex);
               } catch (IOException ex) {
-                LOG.warning("Environment load failed (" + ex.getClass().getName() + ")");
+                LOG.warn("Environment load failed for {} ({})", app.name(), app.guid(), ex);
                 return safeErrorPage(" Environment Error ",
                     "Environment load failed: " + ErrorMessages.describe(ex));
               }
@@ -153,13 +156,14 @@ public final class ExplorerCommands {
             return;
           }
           state.openAsyncPage("Exporting environment for " + app.name(), () -> {
-            try {
+            try (var opMdc = MDC.putCloseable("op", "export");
+                 var appMdc = MDC.putCloseable("app", app.name())) {
               return new EnvExportPage(envExportService.export(app));
             } catch (InterruptedException ex) {
               Thread.currentThread().interrupt();
               throw new CompletionException(ex);
             } catch (IOException ex) {
-              LOG.warning("Environment export failed (" + ex.getClass().getName() + ")");
+              LOG.warn("Environment export failed for {} ({})", app.name(), app.guid(), ex);
               return safeErrorPage(" Export Error ", "Export failed: " + ErrorMessages.describe(ex));
             }
           });
@@ -181,12 +185,13 @@ public final class ExplorerCommands {
             CompletableFuture.runAsync(() -> {
               try {
                 browserLauncher.open(url);
+                LOG.info("Opened Apps Manager URL for {} ({}): {}", app.name(), app.guid(), url);
               } catch (IOException ex) {
                 throw new CompletionException(ex);
               }
             }, worker).whenComplete((ignored, error) -> {
               if (error != null) {
-                LOG.warning("Browser launch failed (" + unwrap(error).getClass().getName() + ")");
+                LOG.warn("Browser launch failed for {} ({})", app.name(), url, unwrap(error));
               }
               try {
                 dispatch.accept(() -> {
@@ -197,11 +202,11 @@ public final class ExplorerCommands {
                   }
                 });
               } catch (RuntimeException ex) {
-                LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+                LOG.warn("Render dispatch failed", ex);
               }
             });
           } catch (RejectedExecutionException ex) {
-            LOG.warning("Browser launch failed (" + ex.getClass().getName() + ")");
+            LOG.warn("Browser launch rejected for {}", app.name(), ex);
             state.showStatus("Could not open browser. Apps Manager URL: " + url);
           }
         }));
@@ -217,15 +222,18 @@ public final class ExplorerCommands {
             return;
           }
           state.openAsyncPage("Inspecting keystore for " + app.name(), () -> {
-            try {
+            try (var opMdc = MDC.putCloseable("op", "keystore");
+                 var appMdc = MDC.putCloseable("app", app.name())) {
               return new KeystoreViewPage(keystoreService.exportAndInspect(app));
             } catch (KeystoreService.SafeKeystoreException ex) {
+              LOG.warn("Keystore validation failed for {} ({}): {}",
+                  app.name(), app.guid(), ex.getMessage());
               return safeErrorPage(" Keystore Error ", ex.getMessage());
             } catch (InterruptedException ex) {
               Thread.currentThread().interrupt();
               throw new CompletionException(ex);
             } catch (IOException ex) {
-              LOG.warning("Keystore export failed (" + ex.getClass().getName() + ")");
+              LOG.warn("Keystore export failed for {} ({})", app.name(), app.guid(), ex);
               return safeErrorPage(" Keystore Error ",
                   "Keystore export failed: " + ErrorMessages.describe(ex));
             }
@@ -398,7 +406,8 @@ public final class ExplorerCommands {
     state.showProgress(progressLabel);
     try {
       CompletableFuture.runAsync(() -> {
-        try {
+        try (var opMdc = MDC.putCloseable("op", "env-apply");
+             var appMdc = MDC.putCloseable("app", app.name())) {
           envEditorService.apply(app, editor.draft());
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
@@ -409,7 +418,7 @@ public final class ExplorerCommands {
       }, worker).whenComplete((ignored, error) -> {
         Throwable cause = error == null ? null : unwrap(error);
         if (cause != null) {
-          LOG.warning("Environment update failed (" + cause.getClass().getName() + ")");
+          LOG.warn("Environment update failed for {} ({})", app.name(), app.guid(), cause);
         }
         started.afterAtLeast(catalogPage.minimumWait(), () -> {
           try {
@@ -442,12 +451,12 @@ public final class ExplorerCommands {
               }
             });
           } catch (RuntimeException ex) {
-            LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+            LOG.warn("Render dispatch failed", ex);
           }
         });
       });
     } catch (RejectedExecutionException ex) {
-      LOG.warning("Environment update failed (" + ex.getClass().getName() + ")");
+      LOG.warn("Environment update rejected for {} ({})", app.name(), app.guid(), ex);
       editor.finishApplying();
       state.showError("Environment update failed for " + app.name()
           + ": The background worker is unavailable.");
@@ -475,12 +484,13 @@ public final class ExplorerCommands {
           }
         });
       } catch (RuntimeException ex) {
-        LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+        LOG.warn("Render dispatch failed", ex);
       }
     };
     try {
       CompletableFuture.supplyAsync(() -> {
-        try {
+        try (var opMdc = MDC.putCloseable("op", op.commandName());
+             var appMdc = MDC.putCloseable("app", app.name())) {
           return Objects.requireNonNull(
               lifecycleService.execute(op, app, stepListener, () -> !state.quitRequested()));
         } catch (InterruptedException ex) {
@@ -492,7 +502,7 @@ public final class ExplorerCommands {
       }, worker).whenComplete((updated, error) -> {
         Throwable cause = error == null ? null : unwrap(error);
         if (cause != null && !(cause instanceof CancellationException)) {
-          LOG.warning(op.verb() + " failed (" + cause.getClass().getName() + ")");
+          LOG.warn("{} failed for {} ({})", op.verb(), app.name(), app.guid(), cause);
         }
         started.afterAtLeast(catalogPage.minimumWait(), () -> {
           try {
@@ -516,12 +526,12 @@ public final class ExplorerCommands {
               }
             });
           } catch (RuntimeException ex) {
-            LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+            LOG.warn("Render dispatch failed", ex);
           }
         });
       });
     } catch (RejectedExecutionException ex) {
-      LOG.warning(op.verb() + " failed (" + ex.getClass().getName() + ")");
+      LOG.warn("{} rejected for {} ({})", op.verb(), app.name(), app.guid(), ex);
       catalogPage.finishOperation(app.guid(), null);
       state.showError(op.verb() + " failed for " + app.name()
           + ": The background worker is unavailable.");

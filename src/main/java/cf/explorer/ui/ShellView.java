@@ -39,7 +39,22 @@ public final class ShellView {
   private static Element layout(ShellState state, int height) {
     boolean compact = height < 16;
     List<Element> layout = new ArrayList<>();
-    layout.add(text(" CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
+    if (state.debugMode()) {
+      Span brand = Span.styled(" CF EXPLORER", Style.create().fg(Color.LIGHT_CYAN).bold());
+      if (compact) {
+        Span badge = Span.styled(
+            "  [! DEBUG MODE: sensitive data may be logged to cf-explorer.log]",
+            Style.create().fg(Color.LIGHT_YELLOW).bold());
+        layout.add(richText(Text.from(Line.from(brand, badge))));
+      } else {
+        Span badge = Span.styled("  [DEBUG MODE]", Style.create().fg(Color.LIGHT_RED).bold());
+        layout.add(richText(Text.from(Line.from(brand, badge))));
+        layout.add(text(" ! DEBUG MODE: HTTP requests/responses & sensitive data may be logged to "
+            + state.debugLogPath()).fg(Color.LIGHT_YELLOW).bold());
+      }
+    } else {
+      layout.add(text(" CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
+    }
     Activity loading = state.loading();
     layout.add(loading != null ? LoadingView.page(loading) : state.activePage().render());
 

@@ -8,9 +8,12 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Fetches an app's environment variables, writes a {@code .env} file, and optionally copies the path. */
 public final class EnvExportService {
+  private static final Logger LOG = LoggerFactory.getLogger(EnvExportService.class);
   @FunctionalInterface
   public interface EnvVarFetcher {
     Map<String, String> fetchEnvironmentVariables(String appGuid)
@@ -57,6 +60,9 @@ public final class EnvExportService {
     EnvFileWriter.WriteResult written =
         EnvFileWriter.write(app, vars, excludeKeys, postProcessors, envsDir);
     boolean copied = copyToClipboard && clipboard.copy(written.path().toAbsolutePath().toString());
+    LOG.info("Exported environment for app {} ({}) to {}: written={} excluded={} postProcessed={} clipboardCopied={}",
+        app.name(), app.guid(), written.path(), written.writtenCount(),
+        written.excludedKeys().size(), written.postProcessedKeys().size(), copied);
     return new ExportResult(app.name(), written.path(), written.writtenCount(),
         written.excludedKeys(), written.postProcessedKeys(), copyToClipboard, copied);
   }

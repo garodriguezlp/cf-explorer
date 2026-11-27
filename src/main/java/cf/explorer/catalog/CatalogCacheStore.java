@@ -13,14 +13,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Reads and writes raw CF catalog JSON files ({@code organizations.json}, {@code spaces.json},
  * {@code apps.json}) in a profile-scoped cache directory, compatible with {@code main}.
  */
 public final class CatalogCacheStore {
-  private static final Logger LOG = Logger.getLogger(CatalogCacheStore.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(CatalogCacheStore.class);
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final TypeReference<List<JsonNode>> NODE_LIST = new TypeReference<>() {};
 
@@ -46,7 +47,7 @@ public final class CatalogCacheStore {
       }
       return Optional.of(CloudFoundryCatalogClient.join(orgs, spaces, apps));
     } catch (IOException | RuntimeException ex) {
-      LOG.warning("Catalog cache read failed (" + ex.getClass().getName() + ")");
+      LOG.warn("Catalog cache read failed in {}", cacheDir, ex);
       return Optional.empty();
     }
   }

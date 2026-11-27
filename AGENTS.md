@@ -47,9 +47,12 @@ Maven is the development build. Keep both working from the same sources:
 
 ## Security and errors
 
-- Never log secrets, passwords, tokens, environment values, or raw HTTP bodies, and never
-  expose them in `/export` or `/keystore` summaries. The interactive `/env` editor displays
-  keys and values on screen so users can inspect and edit them directly.
+- By default (`--no-debug`), never log secrets, passwords, tokens, environment values, or raw
+  HTTP bodies, and never expose them in `/export` or `/keystore` summaries. When `--debug`
+  (`CF_DEBUG[_<ENV>]`) is explicitly enabled, full HTTP requests, responses, and unredacted
+  exception details are written to `cf-explorer.log`, and the TUI must display a persistent
+  global warning banner noting that sensitive data may be logged. The interactive `/env` editor
+  displays keys and values on screen so users can inspect and edit them directly.
   User-facing failure text comes from `ui.ErrorMessages.describe`, `CloudFoundryException`,
   or `KeystoreService.SafeKeystoreException`, never from an arbitrary exception message.
 - Logs go to `~/.cf-explorer[/<env>]/cf-explorer.log` via `io.LogSetup`; nothing may write

@@ -10,12 +10,15 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Coordinates Cloud Foundry v3 application lifecycle operations ({@code start}, {@code stop},
  * {@code restart}, and multi-step {@code restage}) and synchronizes the local catalog cache.
  */
 public final class AppLifecycleService {
+  private static final Logger LOG = LoggerFactory.getLogger(AppLifecycleService.class);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(2);
   private static final int DEFAULT_MAX_POLLS = 150;
 
@@ -157,12 +160,16 @@ public final class AppLifecycleService {
     Objects.requireNonNull(app);
     Objects.requireNonNull(stepListener);
     Objects.requireNonNull(active);
-    return switch (operation) {
+    LOG.info("{} initiated for app {} ({})", operation.verb(), app.name(), app.guid());
+    ApplicationCatalog.App updated = switch (operation) {
       case START -> applyResult(app, api.startApp(app.guid()));
       case STOP -> applyResult(app, api.stopApp(app.guid()));
       case RESTART -> applyResult(app, api.restartApp(app.guid()));
       case RESTAGE -> restage(app, stepListener, active);
     };
+    LOG.info("{} completed for app {} ({}) -> {}", operation.verb(), app.name(), app.guid(),
+        updated.state());
+    return updated;
   }
 
   public ApplicationCatalog.App start(ApplicationCatalog.App app)
@@ -192,6 +199,8 @@ public final class AppLifecycleService {
     checkActive(active);
     stepListener.accept("STAGING 2/4");
     CloudFoundryCatalogClient.BuildResult build = api.createBuild(packageGuid);
+    LOG.info("Staging build {} created from package {} for app {}",
+        build.guid(), packageGuid, app.name());
     int polls = 0;
     while ("STAGING".equalsIgnoreCase(build.state())) {
       if (polls++ >= maxPolls) {
@@ -202,6 +211,8 @@ public final class AppLifecycleService {
       checkActive(active);
       build = api.getBuild(build.guid());
     }
+    LOG.info("Build {} finished with state={} after {} polls (droplet={})",
+        build.guid(), build.state(), polls, build.dropletGuid());
     if (!"STAGED".equalsIgnoreCase(build.state())) {
       throw new CloudFoundryException(
           "Staging failed for " + app.name() + ". Check build logs in Cloud Foundry.");

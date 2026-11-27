@@ -470,6 +470,14 @@ class ExplorerCommandsTest {
         state.suggestions().stream().map(ShellCommand::name).toList());
     state.cancel();
 
+    // Fuzzy value search selects DATABASE_URL in the editor.
+    for (char c : "pgrs".toCharArray()) {
+      ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});
+    }
+    assertTrue(render(state).contains("Env: billing-api  1/3"));
+    assertTrue(render(state).contains("DATABASE_URL"));
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+
     // Fuzzy search "dburl" selects DATABASE_URL; pressing Enter starts /set pre-filled and allows '/'
     for (char c : "dburl".toCharArray()) {
       ShellView.handleKey(KeyEvent.ofChar(c), state, () -> {});

@@ -243,6 +243,7 @@ public class MockServer implements Callable<Integer> {
           ? "-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC"
           : "-XX:MaxRAMPercentage=70.0 -Dspring.devtools.restart.enabled=false");
       vars.put("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", "health,info,metrics,prometheus");
+      vars.put("foo.dot.variable", "dotted-example-" + spaceName);
       vars.put("SPRING_APPLICATION_JSON",
           "{\n"
               + "  \"spring.application.name\": \"" + app.name() + "\",\n"

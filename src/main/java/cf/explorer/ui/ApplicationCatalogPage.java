@@ -46,10 +46,12 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
  * Root page listing every application in the catalog, with a token filter, match highlighting,
@@ -59,7 +61,7 @@ import java.util.stream.Collectors;
  * {@link CatalogProgress}. Esc cancels the initial load or a refresh; the late result is dropped.
  */
 public final class ApplicationCatalogPage implements ShellPage {
-  private static final Logger LOG = Logger.getLogger(ApplicationCatalogPage.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(ApplicationCatalogPage.class);
   private static final String LOADING_LABEL = "Loading Cloud Foundry catalog...";
   private static final String REFRESHING_LABEL = "Refreshing catalog...";
   /** Live per-app lifecycle work shown in the catalog row and panel header. */
@@ -213,7 +215,11 @@ public final class ApplicationCatalogPage implements ShellPage {
       }
     });
     try {
-      CompletableFuture.supplyAsync(() -> Objects.requireNonNull(load.load(reporter)), worker)
+      CompletableFuture.supplyAsync(() -> {
+            try (var opMdc = MDC.putCloseable("op", keepPrevious ? "refresh" : "catalog-load")) {
+              return Objects.requireNonNull(load.load(reporter));
+            }
+          }, worker)
           .whenComplete((result, error) -> {
             if (error != null) {
               logFailure(keepPrevious ? "Catalog refresh" : "Catalog loading", error);
@@ -257,7 +263,7 @@ public final class ApplicationCatalogPage implements ShellPage {
   private static void logFailure(String operation, Throwable error) {
     Throwable cause = error instanceof CompletionException && error.getCause() != null
         ? error.getCause() : error;
-    LOG.warning(operation + " failed (" + cause.getClass().getName() + ")");
+    LOG.warn("{} failed", operation, cause);
   }
 
   public void loaded(ApplicationCatalog catalog) {
@@ -327,7 +333,8 @@ public final class ApplicationCatalogPage implements ShellPage {
         lines.add(text(" " + failureReason));
       }
       lines.add(text(""));
-      lines.add(text(" Check the connection settings, then run /refresh (Ctrl+R) to retry.").dim());
+      lines.add(text(" Check the connection settings or cf-explorer.log (--debug for HTTP trace), "
+          + "then run /refresh (Ctrl+R) to retry.").dim());
       return panel(column(lines.toArray(Element[]::new)))
           .title(" Connection Error ").rounded().borderColor(Color.RED).fill();
     }

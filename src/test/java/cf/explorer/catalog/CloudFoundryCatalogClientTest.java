@@ -4,6 +4,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.*;
 
+import cf.explorer.io.LogSetup;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -205,6 +206,64 @@ class CloudFoundryCatalogClientTest {
       assertTrue(forbidden.getMessage().contains("HTTP 403"), forbidden.getMessage());
       assertFalse(forbidden.getMessage().contains("never-echo"));
     } finally {
+      server.stop();
+    }
+  }
+
+  @Test
+  void httpInterceptorOmitsPayloadsByDefaultAndLogsFullTrafficInDebugMode() throws Exception {
+    WireMockServer server = new WireMockServer(wireMockConfig().dynamicPort());
+    server.start();
+    try {
+      server.stubFor(post(urlPathEqualTo("/oauth/token"))
+          .willReturn(okJson("{\"access_token\":\"secret-bearer-token\",\"expires_in\":600}")));
+      server.stubFor(get(urlPathEqualTo("/v3/apps/app-1/environment_variables"))
+          .willReturn(okJson("{\"var\":{\"DB_PASS\":\"top-secret-db-pw\"}}")));
+      server.stubFor(post(urlPathEqualTo("/v3/apps/app-1/actions/start"))
+          .willReturn(aResponse().withStatus(422)
+              .withHeader("X-Vcap-Request-Id", "req-vcap-999")
+              .withBody("{\"errors\":[{\"detail\":\"raw-422-secret-body\"}]}")));
+
+      Path normalLogs = temp.resolve("normal-logs");
+      LogSetup.toFile(normalLogs, false);
+      try {
+        CloudFoundryCatalogClient normalClient = new CloudFoundryCatalogClient(
+            server.baseUrl(), server.baseUrl(), "admin", "ultra-secret-uaa-pw");
+        assertEquals(Map.of("DB_PASS", "top-secret-db-pw"),
+            normalClient.fetchEnvironmentVariables("app-1"));
+        assertThrows(CloudFoundryException.class, () -> normalClient.startApp("app-1"));
+      } finally {
+        LogSetup.close();
+      }
+
+      String defaultLog = Files.readString(normalLogs.resolve(LogSetup.LOG_FILE));
+      assertTrue(defaultLog.contains("Authenticated with UAA"), defaultLog);
+      assertTrue(defaultLog.contains("vcap-request-id=req-vcap-999"), defaultLog);
+      assertFalse(defaultLog.contains("ultra-secret-uaa-pw"), defaultLog);
+      assertFalse(defaultLog.contains("secret-bearer-token"), defaultLog);
+      assertFalse(defaultLog.contains("top-secret-db-pw"), defaultLog);
+      assertFalse(defaultLog.contains("raw-422-secret-body"), defaultLog);
+
+      Path debugLogs = temp.resolve("debug-logs");
+      LogSetup.toFile(debugLogs, true);
+      try {
+        CloudFoundryCatalogClient debugClient = new CloudFoundryCatalogClient(
+            server.baseUrl(), server.baseUrl(), "admin", "ultra-secret-uaa-pw");
+        assertEquals(Map.of("DB_PASS", "top-secret-db-pw"),
+            debugClient.fetchEnvironmentVariables("app-1"));
+        assertThrows(CloudFoundryException.class, () -> debugClient.startApp("app-1"));
+      } finally {
+        LogSetup.close();
+      }
+
+      String debugLog = Files.readString(debugLogs.resolve(LogSetup.LOG_FILE));
+      assertTrue(debugLog.contains("--> #1 POST " + server.baseUrl() + "/oauth/token"), debugLog);
+      assertTrue(debugLog.contains("<-- #1 200 ("), debugLog);
+      assertTrue(debugLog.contains("secret-bearer-token"), debugLog);
+      assertTrue(debugLog.contains("top-secret-db-pw"), debugLog);
+      assertTrue(debugLog.contains("raw-422-secret-body"), debugLog);
+    } finally {
+      LogSetup.close();
       server.stop();
     }
   }

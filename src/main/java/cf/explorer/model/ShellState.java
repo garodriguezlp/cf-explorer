@@ -17,7 +17,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Interaction state for the command-driven shell: the root page, the stack of opened pages, the
@@ -27,7 +28,7 @@ import java.util.logging.Logger;
  * and navigation. All methods must be called on the render thread.
  */
 public final class ShellState {
-  private static final Logger LOG = Logger.getLogger(ShellState.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(ShellState.class);
   /** Visual severity of the current status message. */
   public enum StatusKind { INFO, SUCCESS, ERROR }
 
@@ -49,6 +50,7 @@ public final class ShellState {
   private final Executor worker;
   private final Consumer<Runnable> dispatch;
   private final Duration minimumWait;
+  private final String debugLogPath;
   private final Deque<ShellPage> previousPages = new ArrayDeque<>();
   private ShellPage page;
   private ShellPage loadingPage;
@@ -64,7 +66,7 @@ public final class ShellState {
 
   public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
       Consumer<Runnable> dispatch) {
-    this(rootPage, commands, worker, dispatch, Duration.ZERO);
+    this(rootPage, commands, worker, dispatch, Duration.ZERO, null);
   }
 
   /**
@@ -73,7 +75,17 @@ public final class ShellState {
    */
   public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
       Consumer<Runnable> dispatch, Duration minimumWait) {
+    this(rootPage, commands, worker, dispatch, minimumWait, null);
+  }
+
+  /**
+   * Creates the shell with an optional {@code debugLogPath} when {@code --debug} is active, used
+   * to display a persistent warning that sensitive data may be written to logs.
+   */
+  public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
+      Consumer<Runnable> dispatch, Duration minimumWait, String debugLogPath) {
     this.minimumWait = Objects.requireNonNull(minimumWait);
+    this.debugLogPath = debugLogPath != null && !debugLogPath.isBlank() ? debugLogPath : null;
     this.rootPage = Objects.requireNonNull(rootPage);
     this.commands = List.copyOf(commands);
     this.worker = Objects.requireNonNull(worker);
@@ -106,6 +118,8 @@ public final class ShellState {
   public String status() { return status; }
   public StatusKind statusKind() { return statusKind; }
   public Confirmation confirmation() { return confirmation; }
+  public boolean debugMode() { return debugLogPath != null; }
+  public String debugLogPath() { return debugLogPath; }
 
   /** The async page being loaded, or {@code null} when no opened page is waiting. */
   public Activity loading() {
@@ -419,7 +433,7 @@ public final class ShellState {
   private static ShellPage failurePage(String label) {
     return () -> panel(column(
         text(" " + label + " failed.").fg(Color.LIGHT_RED).bold(),
-        text(" See cf-explorer.log for the failure type."),
+        text(" See cf-explorer.log for details (or run with --debug)."),
         text(""),
         text(" Press Esc or /back to return.").dim()))
         .title(" Error ").rounded().borderColor(Color.RED).fill();
@@ -428,7 +442,7 @@ public final class ShellState {
   private static void logFailure(String operation, Throwable error) {
     Throwable cause = error instanceof CompletionException && error.getCause() != null
         ? error.getCause() : error;
-    LOG.warning(operation + " failed (" + cause.getClass().getName() + ")");
+    LOG.warn("{} failed", operation, cause);
   }
 
   /** Cancels confirmation, command entry, or returns from the opened page. */

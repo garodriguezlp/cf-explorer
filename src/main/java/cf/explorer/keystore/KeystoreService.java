@@ -22,14 +22,15 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fetches an app's configured JKS keystore and password variables, writes the decoded JKS file
  * without embedding secrets in the filename, and inspects X.509 certificate metadata.
  */
 public final class KeystoreService {
-  private static final Logger LOG = Logger.getLogger(KeystoreService.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(KeystoreService.class);
   private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
   /** Safe domain error whose message never contains secret values. */
@@ -96,9 +97,12 @@ public final class KeystoreService {
       boolean copied = copyToClipboard && clipboard.copy(jksPath.toAbsolutePath().toString());
       try {
         List<KeystoreEntry> entries = inspectJks(keystoreBytes, passwordChars);
+        LOG.info("Exported and inspected keystore for app {} ({}) at {}: entries={}",
+            app.name(), app.guid(), jksPath, entries.size());
         return new InspectResult(app.name(), jksPath, entries, false, copyToClipboard, copied);
       } catch (Exception ex) {
-        LOG.warning("Keystore inspection failed (" + ex.getClass().getName() + ")");
+        LOG.warn("Keystore inspection failed for app {} ({}) at {}",
+            app.name(), app.guid(), jksPath, ex);
         return new InspectResult(app.name(), jksPath, List.of(), true, copyToClipboard, copied);
       }
     } finally {

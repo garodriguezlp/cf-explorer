@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.logging.Logger;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Coordinates cached and live catalog loading for a profile. */
 public final class CachedCatalogService {
-  private static final Logger LOG = Logger.getLogger(CachedCatalogService.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(CachedCatalogService.class);
 
   @FunctionalInterface
   public interface SnapshotLoader {
@@ -55,9 +57,13 @@ public final class CachedCatalogService {
       throws IOException, InterruptedException {
     Objects.requireNonNull(progress);
     if (!fresh) {
+      long startNanos = System.nanoTime();
       Optional<ApplicationCatalog> cached = cacheStore.readIfPresent();
       if (cached.isPresent()) {
         ApplicationCatalog catalog = cached.get();
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+        LOG.info("Loaded catalog from cache: orgs={} spaces={} apps={} ({} ms)",
+            catalog.organizations(), catalog.spaces(), catalog.apps().size(), elapsedMs);
         progress.completed(CatalogProgress.Resource.ORGANIZATIONS, catalog.organizations());
         progress.completed(CatalogProgress.Resource.SPACES, catalog.spaces());
         progress.completed(CatalogProgress.Resource.APPS, catalog.apps().size());
@@ -84,7 +90,7 @@ public final class CachedCatalogService {
     try {
       cacheStore.updateApp(updatedApp);
     } catch (IOException | RuntimeException ex) {
-      LOG.warning("Catalog cache app update failed (" + ex.getClass().getName() + ")");
+      LOG.warn("Catalog cache app update failed", ex);
     }
   }
 
@@ -95,7 +101,7 @@ public final class CachedCatalogService {
     try {
       cacheStore.write(snapshot);
     } catch (IOException ex) {
-      LOG.warning("Catalog cache write failed (" + ex.getClass().getName() + ")");
+      LOG.warn("Catalog cache write failed", ex);
     }
     return catalog;
   }
