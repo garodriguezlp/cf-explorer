@@ -326,7 +326,12 @@ public final class ApplicationCatalogPage implements ShellPage {
             ? "  [" + LoadingView.glyph(activity) + " refreshing " + progress.percent() + "%] "
             : " ");
     if (visible.isEmpty()) {
-      return panel(text(filter.isBlank() ? " No apps." : " No matching apps.").dim())
+      Element empty = filter.isBlank()
+          ? column(text(" No apps."),
+              text(" This user can't see any apps yet. Run /refresh (Ctrl+R) to reload.").dim())
+          : column(text(" No matching apps."),
+              text(" Press Esc to clear the filter.").dim());
+      return panel(empty)
           .title(title).rounded().borderColor(Color.CYAN).fill();
     }
     int selected = 0;

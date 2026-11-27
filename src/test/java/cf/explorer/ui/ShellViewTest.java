@@ -187,6 +187,22 @@ class ShellViewTest {
   }
 
   @Test
+  void catalogEmptyStatesExplainWhatToDoNext() {
+    ApplicationCatalogPage page = new ApplicationCatalogPage();
+    ShellState state = new ShellState(page, ShellCommands.create(), Runnable::run, Runnable::run);
+    page.loaded(new ApplicationCatalog(1, 1, List.of()));
+    String empty = render(state);
+    assertTrue(empty.contains("No apps."), empty);
+    assertTrue(empty.contains("Run /refresh (Ctrl+R) to reload."), empty);
+    page.loaded(new ApplicationCatalog(1, 1, List.of(new ApplicationCatalog.App("one", "app",
+        "STARTED", "s", "space", "o", "org", "2024-01-01", "2024-01-02"))));
+    keys(state, "zzz");
+    String noMatch = render(state);
+    assertTrue(noMatch.contains("No matching apps."), noMatch);
+    assertTrue(noMatch.contains("Press Esc to clear the filter."), noMatch);
+  }
+
+  @Test
   void catalogShowsMatchesInLongNamesAndIdentifiers() {
     var app = new ApplicationCatalog.App("unique-guid-987",
         "very-long-application-name-with-many-parts-and-a-needle-near-the-end",
