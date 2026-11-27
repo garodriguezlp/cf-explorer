@@ -23,6 +23,8 @@
 //SOURCES catalog/CloudFoundryException.java
 //SOURCES config/EnvProcessor.java
 //SOURCES config/ExplorerConfig.java
+//SOURCES env/EnvDraft.java
+//SOURCES env/EnvEditorService.java
 //SOURCES export/EnvExportService.java
 //SOURCES export/EnvFileWriter.java
 //SOURCES io/ClipboardSupport.java
@@ -36,6 +38,7 @@
 //SOURCES model/ShellPage.java
 //SOURCES model/ShellState.java
 //SOURCES ui/ApplicationCatalogPage.java
+//SOURCES ui/EnvEditorPage.java
 //SOURCES ui/EnvExportPage.java
 //SOURCES ui/ErrorMessages.java
 //SOURCES ui/KeystoreViewPage.java

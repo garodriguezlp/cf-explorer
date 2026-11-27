@@ -7,6 +7,7 @@ import static dev.tamboui.toolkit.Toolkit.text;
 import cf.explorer.browser.AppsManagerUrl;
 import cf.explorer.browser.BrowserLauncher;
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.env.EnvEditorService;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.keystore.KeystoreService;
 import cf.explorer.lifecycle.AppLifecycleService;
@@ -17,6 +18,7 @@ import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
 import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
+import cf.explorer.ui.EnvEditorPage;
 import cf.explorer.ui.EnvExportPage;
 import cf.explorer.ui.ErrorMessages;
 import cf.explorer.ui.KeystoreViewPage;
@@ -85,6 +87,26 @@ public final class ExplorerCommands {
       String envProfile,
       Executor worker,
       Consumer<Runnable> dispatch) {
+    return create(catalogPage, refreshLoader, envExportService, cfWebUrl, browserLauncher,
+        keystoreService, lifecycleService, null, envProfile, worker, dispatch);
+  }
+
+  /**
+   * Registers all commands including lifecycle operations and the interactive {@code /env} editor
+   * when {@code envEditorService} is provided.
+   */
+  public static List<ShellCommand> create(
+      ApplicationCatalogPage catalogPage,
+      ApplicationCatalogPage.ProgressLoader refreshLoader,
+      EnvExportService envExportService,
+      String cfWebUrl,
+      BrowserLauncher browserLauncher,
+      KeystoreService keystoreService,
+      AppLifecycleService lifecycleService,
+      EnvEditorService envEditorService,
+      String envProfile,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
     Objects.requireNonNull(catalogPage);
     Objects.requireNonNull(refreshLoader);
     Objects.requireNonNull(envExportService);
@@ -95,6 +117,31 @@ public final class ExplorerCommands {
     Objects.requireNonNull(dispatch);
 
     List<ShellCommand> commands = new ArrayList<>();
+    if (envEditorService != null) {
+      commands.add(new ShellCommand(
+          "env",
+          'l',
+          "Edit selected app environment variables",
+          state -> state.selected(ApplicationCatalog.App.class) != null,
+          state -> {
+            ApplicationCatalog.App app = state.selected(ApplicationCatalog.App.class);
+            if (app == null) {
+              return;
+            }
+            state.openAsyncPage("Loading environment for " + app.name(), () -> {
+              try {
+                return new EnvEditorPage(app, envEditorService.loadDraft(app), state);
+              } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new CompletionException(ex);
+              } catch (IOException ex) {
+                LOG.warning("Environment load failed (" + ex.getClass().getName() + ")");
+                return safeErrorPage(" Environment Error ",
+                    "Environment load failed: " + ErrorMessages.describe(ex));
+              }
+            });
+          }));
+    }
     commands.add(new ShellCommand(
         "export",
         'e',
@@ -199,6 +246,85 @@ public final class ExplorerCommands {
           app -> true, catalogPage, lifecycleService, envProfile, worker, dispatch));
     }
 
+    if (envEditorService != null) {
+      commands.add(new ShellCommand(
+          "new",
+          'n',
+          "Stage a new environment variable",
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            return ed != null && !ed.isApplying();
+          },
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            if (ed != null && !ed.isApplying()) {
+              ed.beginNew(state);
+            }
+          }));
+      commands.add(new ShellCommand(
+          "set",
+          "Update selected environment variable value",
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            return ed != null && !ed.isApplying() && ed.selected() != null;
+          },
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            if (ed != null && !ed.isApplying() && ed.selected() != null) {
+              ed.beginSet(state);
+            }
+          }));
+      commands.add(new ShellCommand(
+          "delete",
+          "Stage deletion of selected environment variable",
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            return ed != null && !ed.isApplying()
+                && ed.selected() != null && !ed.selected().isDeleted();
+          },
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            if (ed != null && !ed.isApplying()) {
+              ed.beginDelete(state);
+            }
+          }));
+      commands.add(new ShellCommand(
+          "undo",
+          "Revert staged change on selected variable",
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            return ed != null && !ed.isApplying()
+                && ed.selected() != null && ed.selected().isChanged();
+          },
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            if (ed != null && !ed.isApplying()) {
+              ed.undoSelected(state);
+            }
+          }));
+      commands.add(new ShellCommand(
+          "apply",
+          'y',
+          "Apply all staged environment changes to Cloud Foundry",
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            return ed != null && !ed.isApplying() && ed.draft().hasChanges();
+          },
+          state -> {
+            EnvEditorPage ed = activeEnvEditor(state);
+            if (ed == null || ed.isApplying() || !ed.draft().hasChanges()) {
+              return;
+            }
+            int count = ed.draft().changeCount();
+            String noun = count == 1 ? "change" : "changes";
+            String prompt = "Apply " + count + " env " + noun + " ("
+                + ed.draft().summaryBreakdown() + ") to " + appTarget(ed.app(), envProfile) + "?";
+            state.requestConfirmation(prompt, () -> runEnvApply(
+                ed, envEditorService, catalogPage, lifecycleService, envProfile,
+                state, worker, dispatch));
+          }));
+    }
+
     commands.add(new ShellCommand(
         "refresh",
         'r',
@@ -236,13 +362,96 @@ public final class ExplorerCommands {
               || !statePredicate.test(app)) {
             return;
           }
-          String envSuffix = envProfile != null && !envProfile.isBlank()
-              ? " [" + envProfile + "]" : "";
-          String prompt = op.verb() + " " + app.name() + " in " + app.orgName()
-              + " \u203a " + app.spaceName() + envSuffix + "?";
+          String prompt = op.verb() + " " + appTarget(app, envProfile) + "?";
           state.requestConfirmation(prompt, () -> runLifecycleOperation(
               op, app, catalogPage, lifecycleService, state, worker, dispatch));
         });
+  }
+
+  private static String appTarget(ApplicationCatalog.App app, String envProfile) {
+    String envSuffix = envProfile != null && !envProfile.isBlank()
+        ? " [" + envProfile + "]" : "";
+    return app.name() + " in " + app.orgName() + " \u203a " + app.spaceName() + envSuffix;
+  }
+
+  private static EnvEditorPage activeEnvEditor(ShellState state) {
+    return state.activePage() instanceof EnvEditorPage editor ? editor : null;
+  }
+
+  private static void runEnvApply(
+      EnvEditorPage editor,
+      EnvEditorService envEditorService,
+      ApplicationCatalogPage catalogPage,
+      AppLifecycleService lifecycleService,
+      String envProfile,
+      ShellState state,
+      Executor worker,
+      Consumer<Runnable> dispatch) {
+    if (editor.isApplying() || !editor.draft().hasChanges()) {
+      return;
+    }
+    ApplicationCatalog.App app = editor.app();
+    int count = editor.draft().changeCount();
+    String noun = count == 1 ? "change" : "changes";
+    String progressLabel = "Applying " + count + " env " + noun + " to " + app.name() + "...";
+    Activity started = editor.startApplying(progressLabel);
+    state.showProgress(progressLabel);
+    try {
+      CompletableFuture.runAsync(() -> {
+        try {
+          envEditorService.apply(app, editor.draft());
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          throw new CompletionException(ex);
+        } catch (IOException ex) {
+          throw new CompletionException(ex);
+        }
+      }, worker).whenComplete((ignored, error) -> {
+        Throwable cause = error == null ? null : unwrap(error);
+        if (cause != null) {
+          LOG.warning("Environment update failed (" + cause.getClass().getName() + ")");
+        }
+        started.afterAtLeast(catalogPage.minimumWait(), () -> {
+          try {
+            dispatch.accept(() -> {
+              if (state.quitRequested()) {
+                return;
+              }
+              editor.finishApplying();
+              if (cause == null) {
+                if (state.activePage() == editor) {
+                  state.backNow();
+                }
+                String summary = "Applied " + count + " env " + noun + " to " + app.name();
+                if (lifecycleService != null && !catalogPage.isOperationInFlight(app.guid())) {
+                  ApplicationCatalog.App targetApp = catalogPage.selected() != null
+                      && catalogPage.selected().guid().equals(app.guid())
+                      ? catalogPage.selected() : app;
+                  state.requestConfirmation(
+                      summary + ". Restart " + appTarget(targetApp, envProfile) + " now?",
+                      () -> runLifecycleOperation(Operation.RESTART, targetApp, catalogPage,
+                          lifecycleService, state, worker, dispatch),
+                      () -> state.showSuccess(
+                          summary + " (restart skipped; run /restart or /restage when ready)."));
+                } else {
+                  state.showSuccess(summary + ".");
+                }
+              } else {
+                state.showError("Environment update failed for " + app.name() + ": "
+                    + ErrorMessages.describe(cause));
+              }
+            });
+          } catch (RuntimeException ex) {
+            LOG.warning("Render dispatch failed (" + ex.getClass().getName() + ")");
+          }
+        });
+      });
+    } catch (RejectedExecutionException ex) {
+      LOG.warning("Environment update failed (" + ex.getClass().getName() + ")");
+      editor.finishApplying();
+      state.showError("Environment update failed for " + app.name()
+          + ": The background worker is unavailable.");
+    }
   }
 
   private static void runLifecycleOperation(

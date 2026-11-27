@@ -27,6 +27,7 @@ class ShortcutDecodingTest {
   @Test
   void everyRegisteredShortcutDecodesFromItsControlByte() throws Exception {
     List<ShellCommand> commands = Stream.concat(Stream.of(
+        new ShellCommand("env", 'l', "Env", s -> true, s -> {}),
         new ShellCommand("export", 'e', "Export", s -> true, s -> {}),
         new ShellCommand("keystore", 'k', "Keystore", s -> true, s -> {}),
         new ShellCommand("open", 'o', "Open", s -> true, s -> {}),
@@ -34,6 +35,8 @@ class ShortcutDecodingTest {
         new ShellCommand("stop", 'p', "Stop", s -> true, s -> {}),
         new ShellCommand("restart", 't', "Restart", s -> true, s -> {}),
         new ShellCommand("restage", 'g', "Restage", s -> true, s -> {}),
+        new ShellCommand("new", 'n', "New", s -> true, s -> {}),
+        new ShellCommand("apply", 'y', "Apply", s -> true, s -> {}),
         new ShellCommand("refresh", 'r', "Refresh", s -> true, s -> {})),
         ShellCommands.create().stream()).toList();
     ShellState state = new ShellState(() -> Toolkit.text("Root"), commands,

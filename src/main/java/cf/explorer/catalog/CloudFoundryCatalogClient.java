@@ -2,6 +2,7 @@ package cf.explorer.catalog;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -178,6 +179,38 @@ public final class CloudFoundryCatalogClient {
     JsonNode response = sendAuthorizedJson(
         "GET", "/v3/apps/" + encodedGuid + "/environment_variables", null,
         "Cloud Foundry API request");
+    return parseEnvVarMap(response);
+  }
+
+  /**
+   * Atomically adds, updates, and deletes application environment variables via Cloud Foundry v3.
+   * Entries mapped to {@code null} delete that variable; non-null entries set or update it.
+   */
+  public Map<String, String> patchEnvironmentVariables(String appGuid, Map<String, String> changes)
+      throws IOException, InterruptedException {
+    String encodedGuid = encodeRequiredGuid(appGuid, "App GUID");
+    Objects.requireNonNull(changes);
+    ObjectNode root = JSON.createObjectNode();
+    ObjectNode varNode = root.putObject("var");
+    for (Map.Entry<String, String> entry : changes.entrySet()) {
+      String key = entry.getKey();
+      if (key == null || key.isBlank()) {
+        throw new IllegalArgumentException("Environment variable key must not be blank");
+      }
+      if (entry.getValue() == null) {
+        varNode.putNull(key);
+      } else {
+        varNode.put(key, entry.getValue());
+      }
+    }
+    String body = JSON.writeValueAsString(root);
+    JsonNode response = sendAuthorizedJson(
+        "PATCH", "/v3/apps/" + encodedGuid + "/environment_variables", body,
+        "Update environment variables");
+    return parseEnvVarMap(response);
+  }
+
+  private static Map<String, String> parseEnvVarMap(JsonNode response) throws IOException {
     JsonNode varNode = response.get("var");
     if (varNode == null || varNode.isNull()) {
       return Map.of();

@@ -8,7 +8,9 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -182,6 +184,26 @@ class CloudFoundryCatalogClientTest {
       CloudFoundryException noPkg = assertThrows(CloudFoundryException.class,
           () -> client.findLatestReadyPackageGuid("no-pkg"));
       assertEquals("No READY package found to restage.", noPkg.getMessage());
+
+      // PATCH environment_variables sends string upserts + explicit JSON null deletions
+      server.stubFor(patch(urlPathEqualTo("/v3/apps/app-1/environment_variables"))
+          .withHeader("Authorization", equalTo("Bearer fresh-token"))
+          .withRequestBody(equalToJson(
+              "{\"var\":{\"NEW_KEY\":\"https://api.internal/v2\",\"OLD_KEY\":null}}"))
+          .willReturn(okJson(
+              "{\"var\":{\"NEW_KEY\":\"https://api.internal/v2\",\"KEEP\":\"1\"}}")));
+      Map<String, String> patchPayload = new LinkedHashMap<>();
+      patchPayload.put("NEW_KEY", "https://api.internal/v2");
+      patchPayload.put("OLD_KEY", null);
+      Map<String, String> patched = client.patchEnvironmentVariables("app-1", patchPayload);
+      assertEquals(Map.of("NEW_KEY", "https://api.internal/v2", "KEEP", "1"), patched);
+
+      server.stubFor(patch(urlPathEqualTo("/v3/apps/forbidden/environment_variables"))
+          .willReturn(aResponse().withStatus(403).withBody("{\"secret\":\"never-echo\"}")));
+      CloudFoundryException forbidden = assertThrows(CloudFoundryException.class,
+          () -> client.patchEnvironmentVariables("forbidden", Map.of("K", "V")));
+      assertTrue(forbidden.getMessage().contains("HTTP 403"), forbidden.getMessage());
+      assertFalse(forbidden.getMessage().contains("never-echo"));
     } finally {
       server.stop();
     }

@@ -18,11 +18,12 @@ public record ShellCommand(String name, char shortcut, String description,
   public static final char NO_SHORTCUT = '\0';
 
   /**
-   * Letters that cannot be shortcuts: Ctrl+C (quit), Ctrl+Z (suspend), Ctrl+S and Ctrl+Q (flow
-   * control), Ctrl+D (end of input), and Ctrl+I, Ctrl+J, Ctrl+M, Ctrl+H, which terminals send as
-   * Tab, Enter, Enter, and Backspace. Ctrl+W is TamboUI's delete-word binding.
+   * Letters that cannot be shortcuts: Ctrl+C and Ctrl+V (OS copy/paste), Ctrl+A and Ctrl+F (OS
+   * select-all and find), Ctrl+Z (undo/suspend), Ctrl+S and Ctrl+Q (save/quit and flow control),
+   * Ctrl+D (end of input), Ctrl+W (close/delete-word), and Ctrl+I, Ctrl+J, Ctrl+M, Ctrl+H, which
+   * terminals send as Tab, Enter, Enter, and Backspace.
    */
-  public static final String RESERVED_SHORTCUTS = "cdhijmqswz";
+  public static final String RESERVED_SHORTCUTS = "acdfhijmqsvwz";
 
   public ShellCommand {
     Objects.requireNonNull(name);

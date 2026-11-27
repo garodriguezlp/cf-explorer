@@ -32,10 +32,15 @@ public final class ShellState {
   public enum StatusKind { INFO, SUCCESS, ERROR }
 
   /** An inline confirmation prompt awaiting {@code Enter}/{@code y} or {@code Esc}/{@code n}. */
-  public record Confirmation(String prompt, Runnable onConfirm) {
+  public record Confirmation(String prompt, Runnable onConfirm, Runnable onCancel) {
     public Confirmation {
       Objects.requireNonNull(prompt);
       Objects.requireNonNull(onConfirm);
+      Objects.requireNonNull(onCancel);
+    }
+
+    public Confirmation(String prompt, Runnable onConfirm) {
+      this(prompt, onConfirm, () -> {});
     }
   }
 
@@ -267,7 +272,12 @@ public final class ShellState {
 
   /** Prompts the user inline to confirm a mutating action before running {@code onConfirm}. */
   public void requestConfirmation(String prompt, Runnable onConfirm) {
-    confirmation = new Confirmation(prompt, onConfirm);
+    requestConfirmation(prompt, onConfirm, () -> showStatus("Cancelled."));
+  }
+
+  /** Prompts inline confirmation with custom handlers for both confirm and cancel. */
+  public void requestConfirmation(String prompt, Runnable onConfirm, Runnable onCancel) {
+    confirmation = new Confirmation(prompt, onConfirm, onCancel);
     command = null;
     cursor = 0;
     status = "";
@@ -293,8 +303,9 @@ public final class ShellState {
   /** Cancels the pending inline confirmation, if any. */
   public void cancelConfirmation() {
     if (confirmation != null) {
+      Confirmation pending = confirmation;
       confirmation = null;
-      showStatus("Cancelled.");
+      pending.onCancel().run();
     }
   }
 
@@ -333,12 +344,29 @@ public final class ShellState {
     page = next;
   }
 
-  /** Returns to the previous page. Leaving a loading page cancels it; its result is dropped. */
+  /**
+   * Returns to the previous page, asking for inline confirmation first if the active page reports
+   * unapplied work via {@link ShellPage#confirmDiscardPrompt()}. Leaving a loading page cancels it;
+   * its result is dropped.
+   */
   public void back() {
+    if (page != null && page != loadingPage) {
+      String discardPrompt = page.confirmDiscardPrompt();
+      if (discardPrompt != null && !discardPrompt.isBlank()) {
+        requestConfirmation(discardPrompt, this::backNow);
+        return;
+      }
+    }
+    backNow();
+  }
+
+  /** Immediately returns to the previous page without prompting to discard changes. */
+  public void backNow() {
     Activity cancelled = loading();
     if (cancelled != null) {
       showStatus("Cancelled: " + cancelled.label() + ".");
     }
+    confirmation = null;
     loadingPage = null;
     loadingActivity = null;
     page = previousPages.poll();
@@ -415,7 +443,9 @@ public final class ShellState {
       command = null;
       cursor = 0;
     } else if (page != null) {
-      back();
+      if (!page.onEscape(this)) {
+        back();
+      }
     }
   }
 }
