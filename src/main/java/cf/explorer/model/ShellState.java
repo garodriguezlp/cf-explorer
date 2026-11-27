@@ -28,6 +28,17 @@ import java.util.logging.Logger;
  */
 public final class ShellState {
   private static final Logger LOG = Logger.getLogger(ShellState.class.getName());
+  /** Visual severity of the current status message. */
+  public enum StatusKind { INFO, SUCCESS, ERROR }
+
+  /** An inline confirmation prompt awaiting {@code Enter}/{@code y} or {@code Esc}/{@code n}. */
+  public record Confirmation(String prompt, Runnable onConfirm) {
+    public Confirmation {
+      Objects.requireNonNull(prompt);
+      Objects.requireNonNull(onConfirm);
+    }
+  }
+
   private final ShellPage rootPage;
   private final List<ShellCommand> commands;
   private final Executor worker;
@@ -38,10 +49,12 @@ public final class ShellState {
   private ShellPage loadingPage;
   private Activity loadingActivity;
   private Activity statusActivity;
+  private Confirmation confirmation;
   private String command;
   private int cursor;
   private int suggestionIndex;
   private String status = "";
+  private StatusKind statusKind = StatusKind.INFO;
   private boolean quit;
 
   public ShellState(ShellPage rootPage, List<ShellCommand> commands, Executor worker,
@@ -86,6 +99,8 @@ public final class ShellState {
     return Math.max(0, Math.min(suggestionIndex, suggestions().size() - 1));
   }
   public String status() { return status; }
+  public StatusKind statusKind() { return statusKind; }
+  public Confirmation confirmation() { return confirmation; }
 
   /** The async page being loaded, or {@code null} when no opened page is waiting. */
   public Activity loading() {
@@ -225,6 +240,7 @@ public final class ShellState {
     if (chosen == null) {
       return false;
     }
+    confirmation = null;
     command = null;
     cursor = 0;
     suggestionIndex = 0;
@@ -234,33 +250,82 @@ public final class ShellState {
 
   private void run(ShellCommand chosen) {
     if (!chosen.available().test(this)) {
-      status = "Command unavailable: /" + chosen.name();
+      showStatus("Command unavailable: /" + chosen.name());
       return;
     }
     status = "";
+    statusKind = StatusKind.INFO;
     command = null;
     cursor = 0;
     try {
       chosen.execute().accept(this);
     } catch (RuntimeException ex) {
       logFailure("Command /" + chosen.name(), ex);
-      status = "Command failed: /" + chosen.name();
+      showStatus("Command failed: /" + chosen.name());
+    }
+  }
+
+  /** Prompts the user inline to confirm a mutating action before running {@code onConfirm}. */
+  public void requestConfirmation(String prompt, Runnable onConfirm) {
+    confirmation = new Confirmation(prompt, onConfirm);
+    command = null;
+    cursor = 0;
+    status = "";
+    statusKind = StatusKind.INFO;
+    statusActivity = null;
+  }
+
+  /** Runs and clears the pending inline confirmation, if any. */
+  public void acceptConfirmation() {
+    if (confirmation == null) {
+      return;
+    }
+    Confirmation pending = confirmation;
+    confirmation = null;
+    try {
+      pending.onConfirm().run();
+    } catch (RuntimeException ex) {
+      logFailure("Confirmed action", ex);
+      showError("Action failed.");
+    }
+  }
+
+  /** Cancels the pending inline confirmation, if any. */
+  public void cancelConfirmation() {
+    if (confirmation != null) {
+      confirmation = null;
+      showStatus("Cancelled.");
     }
   }
 
   public void showStatus(String message) {
     status = Objects.requireNonNull(message);
+    statusKind = StatusKind.INFO;
+    statusActivity = null;
+  }
+
+  public void showSuccess(String message) {
+    status = "\u2713 " + Objects.requireNonNull(message);
+    statusKind = StatusKind.SUCCESS;
+    statusActivity = null;
+  }
+
+  public void showError(String message) {
+    status = "\u2717 " + Objects.requireNonNull(message);
+    statusKind = StatusKind.ERROR;
     statusActivity = null;
   }
 
   /** Shows {@code message} with a status-line spinner until the next status replaces it. */
   public void showProgress(String message) {
     status = Objects.requireNonNull(message);
+    statusKind = StatusKind.INFO;
     statusActivity = Activity.start(message);
   }
 
   public void openPage(ShellPage next) {
     Objects.requireNonNull(next);
+    confirmation = null;
     if (page != null && page != loadingPage) {
       previousPages.push(page);
     }
@@ -338,9 +403,14 @@ public final class ShellState {
     LOG.warning(operation + " failed (" + cause.getClass().getName() + ")");
   }
 
-  /** Cancels command entry, or returns from the opened page. */
+  /** Cancels confirmation, command entry, or returns from the opened page. */
   public void cancel() {
+    if (confirmation != null) {
+      cancelConfirmation();
+      return;
+    }
     status = "";
+    statusKind = StatusKind.INFO;
     if (command != null) {
       command = null;
       cursor = 0;

@@ -78,7 +78,7 @@ public final class LoadingView {
   }
 
   /** {@code "4s"} or {@code "1m 05s"}. */
-  static String shortDuration(Duration elapsed) {
+  public static String shortDuration(Duration elapsed) {
     long seconds = elapsed.toSeconds();
     return seconds < 60 ? seconds + "s" : String.format("%dm %02ds", seconds / 60, seconds % 60);
   }

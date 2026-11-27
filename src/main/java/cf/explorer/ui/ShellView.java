@@ -68,13 +68,23 @@ public final class ShellView {
     }
 
     String pageInput = state.command() == null ? state.activePage().inputValue() : null;
-    String input = state.command() != null
-        ? "/" + editing(state.command(), state.cursor())
-        : pageInput != null ? editing(pageInput, state.activePage().inputCursor())
-            : "Type / for commands";
-    layout.add(panel(text(" " + input).fg(Color.BRIGHT_WHITE))
-        .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
-        .rounded().borderColor(Color.LIGHT_CYAN).length(3));
+    if (state.confirmation() != null) {
+      Span prompt = Span.styled(" " + state.confirmation().prompt() + "  ",
+          Style.create().fg(Color.LIGHT_YELLOW).bold());
+      Span hint = Span.styled("[Enter/y] confirm  [Esc/n] cancel",
+          Style.create().fg(Color.BRIGHT_WHITE));
+      layout.add(panel(richText(Text.from(Line.from(prompt, hint))))
+          .title(" Confirm ")
+          .rounded().borderColor(Color.YELLOW).length(3));
+    } else {
+      String input = state.command() != null
+          ? "/" + editing(state.command(), state.cursor())
+          : pageInput != null ? editing(pageInput, state.activePage().inputCursor())
+              : "Type / for commands";
+      layout.add(panel(text(" " + input).fg(Color.BRIGHT_WHITE))
+          .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
+          .rounded().borderColor(Color.LIGHT_CYAN).length(3));
+    }
     if (!state.status().isEmpty()) {
       layout.add(statusLine(state));
     }
@@ -92,7 +102,12 @@ public final class ShellView {
   private static Element statusLine(ShellState state) {
     Activity activity = state.statusActivity();
     if (activity == null) {
-      return text(" " + state.status()).fg(Color.LIGHT_YELLOW);
+      Color color = switch (state.statusKind()) {
+        case SUCCESS -> Color.LIGHT_GREEN;
+        case ERROR -> Color.LIGHT_RED;
+        case INFO -> Color.LIGHT_YELLOW;
+      };
+      return text(" " + state.status()).fg(color);
     }
     long seconds = activity.elapsed().toSeconds();
     List<Span> spans = new ArrayList<>();
@@ -170,7 +185,7 @@ public final class ShellView {
    * {@code /} (which starts command entry) and Esc on opened pages (which navigates back). The
    * root page receives Esc so it can clear its filter.
    */
-  static EventResult handleKey(KeyEvent event, ShellState state, Runnable quit) {
+  public static EventResult handleKey(KeyEvent event, ShellState state, Runnable quit) {
     if (!event.isPressOrRepeat()) {
       return EventResult.UNHANDLED;
     }
@@ -179,6 +194,22 @@ public final class ShellView {
     if (event.isCtrlC()) {
       state.requestQuit();
       quit.run();
+    } else if (state.confirmation() != null) {
+      boolean confirmKey = event.isKey(KeyCode.ENTER)
+          || (event.isTyping() && !event.hasNonShiftModifier()
+              && (event.codePoint() == 'y' || event.codePoint() == 'Y'));
+      boolean cancelKey = event.isKey(KeyCode.ESCAPE)
+          || (event.isTyping() && !event.hasNonShiftModifier()
+              && (event.codePoint() == 'n' || event.codePoint() == 'N'));
+      if (confirmKey) {
+        state.acceptConfirmation();
+        if (state.quitRequested()) {
+          quit.run();
+        }
+      } else if (cancelKey) {
+        state.cancelConfirmation();
+      }
+      return EventResult.HANDLED;
     } else if (shortcut != ShellCommand.NO_SHORTCUT && state.runShortcut(shortcut)) {
       if (state.quitRequested()) {
         quit.run();

@@ -29,6 +29,7 @@
 //SOURCES io/LogSetup.java
 //SOURCES keystore/KeystoreEntry.java
 //SOURCES keystore/KeystoreService.java
+//SOURCES lifecycle/AppLifecycleService.java
 //SOURCES model/Activity.java
 //SOURCES model/ShellCommand.java
 //SOURCES model/ShellCommands.java

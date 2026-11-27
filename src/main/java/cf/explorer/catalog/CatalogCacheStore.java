@@ -3,11 +3,13 @@ package cf.explorer.catalog;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -55,6 +57,51 @@ public final class CatalogCacheStore {
     writeAtomically(organizationsPath(), snapshot.organizations());
     writeAtomically(spacesPath(), snapshot.spaces());
     writeAtomically(appsPath(), snapshot.apps());
+  }
+
+  /**
+   * Patches a single application entry in {@code apps.json} when a full catalog cache exists on
+   * disk, preserving relationships and fields omitted by partial responses.
+   */
+  public synchronized void updateApp(JsonNode updatedApp) throws IOException {
+    Objects.requireNonNull(updatedApp);
+    Path orgsPath = organizationsPath();
+    Path spacesPath = spacesPath();
+    Path appsPath = appsPath();
+    if (!Files.exists(orgsPath) || !Files.exists(spacesPath) || !Files.exists(appsPath)) {
+      return;
+    }
+    String guid = updatedApp.path("guid").asText("");
+    if (guid.isBlank()) {
+      return;
+    }
+    List<JsonNode> apps = JSON.readValue(appsPath.toFile(), NODE_LIST);
+    if (apps == null) {
+      return;
+    }
+    List<JsonNode> next = new ArrayList<>(apps.size());
+    boolean modified = false;
+    for (JsonNode existing : apps) {
+      if (guid.equals(existing.path("guid").asText()) && existing.isObject()) {
+        ObjectNode merged = ((ObjectNode) existing).deepCopy();
+        if (updatedApp.path("state").isTextual()) {
+          merged.put("state", updatedApp.get("state").asText());
+        }
+        if (updatedApp.path("updated_at").isTextual()) {
+          merged.put("updated_at", updatedApp.get("updated_at").asText());
+        }
+        if (updatedApp.path("name").isTextual()) {
+          merged.put("name", updatedApp.get("name").asText());
+        }
+        next.add(merged);
+        modified = true;
+      } else {
+        next.add(existing);
+      }
+    }
+    if (modified) {
+      writeAtomically(appsPath, next);
+    }
   }
 
   public void clear() throws IOException {

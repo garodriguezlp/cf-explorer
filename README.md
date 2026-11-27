@@ -1,9 +1,9 @@
 # cf-explorer
 
 An interactive terminal browser for Cloud Foundry. Filter every application across
-your organizations and spaces, export an app's environment to a `.env` file, decode
-and inspect its JKS keystore, or open it in Apps Manager, all from one command-driven
-screen.
+your organizations and spaces, start, stop, restart, or restage apps in the
+background, export an app's environment to a `.env` file, decode and inspect its JKS
+keystore, or open it in Apps Manager, all from one command-driven screen.
 
 ![cf-explorer catalog with command suggestions](docs/cf-explorer-catalog.png)
 
@@ -79,6 +79,10 @@ command view lists each command's shortcut.
 | `/export` | `Ctrl+E` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
 | `/keystore` | `Ctrl+K` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
 | `/open` | `Ctrl+O` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |
+| `/start` | `Ctrl+U` | Selected app is not `STARTED` | Prompts for confirmation, starts the app in the background, and updates the catalog and cache |
+| `/stop` | `Ctrl+P` | Selected app is not `STOPPED` | Prompts for confirmation, stops the app in the background, and updates the catalog and cache |
+| `/restart` | `Ctrl+T` | An app is selected | Prompts for confirmation, restarts the app in the background, and updates the catalog and cache |
+| `/restage` | `Ctrl+G` | An app is selected | Prompts for confirmation, stages a new build from the latest ready package, assigns the droplet, and restarts the app in the background |
 | `/refresh` | `Ctrl+R` | On the catalog | Reloads from Cloud Foundry, keeps the filter and selection, and updates the cache only on success |
 | `/back` | `Ctrl+B` | On any opened page | Returns to the previous page |
 | `/quit` | `Ctrl+X` | Always | Exits |
@@ -106,6 +110,12 @@ terminal:
   (with `x of y` counts from the API), a progress gauge, and the elapsed time.
 - **`/export` and `/keystore`** show an animated working page with the elapsed time,
   plus a reassurance line after 10 seconds.
+- **`/start`, `/stop`, `/restart`, and `/restage`** ask for inline confirmation
+  (`Enter`/`y` to confirm, `Esc`/`n` to cancel) showing the target organization,
+  space, and profile, then run in the background so you can keep filtering and
+  working. The app's row (`STARTING`, `STOPPING`, `RESTARTING`, `STAGING 1/4`…`4/4`)
+  and the `Apps` panel header animate until completion, when a `✓` / `✗` status
+  notification appears and the local cache updates.
 - **`/refresh`** keeps the catalog usable. The title and status line show a spinner
   and progress until the new catalog arrives.
 - **`/open`** shows a spinner in the status line until the browser launches.
@@ -236,6 +246,7 @@ published `cf-explorer@garodriguezlp/cf-explorer` path is covered before it ship
 | `cf.explorer.catalog` | Catalog model, UAA and CF v3 client, profile cache |
 | `cf.explorer.export` | `.env` formatting and export |
 | `cf.explorer.keystore` | JKS decoding, file writing, and certificate inspection |
+| `cf.explorer.lifecycle` | App `start`, `stop`, `restart`, and multi-step `restage` orchestration |
 | `cf.explorer.browser` | Apps Manager URLs and browser launch |
 | `cf.explorer.io` | Clipboard and log setup |
 | `cf.explorer.model` | UI-independent shell state, commands, and page contract |

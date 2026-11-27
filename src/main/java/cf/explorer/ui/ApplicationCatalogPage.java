@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -61,7 +62,19 @@ public final class ApplicationCatalogPage implements ShellPage {
   private static final Logger LOG = Logger.getLogger(ApplicationCatalogPage.class.getName());
   private static final String LOADING_LABEL = "Loading Cloud Foundry catalog...";
   private static final String REFRESHING_LABEL = "Refreshing catalog...";
+  /** Live per-app lifecycle work shown in the catalog row and panel header. */
+  public record InFlightOperation(String appGuid, String appName, String badgeLabel,
+      Activity activity) {
+    public InFlightOperation {
+      Objects.requireNonNull(appGuid);
+      Objects.requireNonNull(appName);
+      Objects.requireNonNull(badgeLabel);
+      Objects.requireNonNull(activity);
+    }
+  }
+
   private final Duration minimumWait;
+  private final Map<String, InFlightOperation> inFlight = new LinkedHashMap<>();
   private ApplicationCatalog catalog;
   private boolean failed;
   private boolean cancelled;
@@ -88,6 +101,60 @@ public final class ApplicationCatalogPage implements ShellPage {
   /** Creates the page; loading states stay up for at least {@code minimumWait}. */
   public ApplicationCatalogPage(Duration minimumWait) {
     this.minimumWait = Objects.requireNonNull(minimumWait);
+  }
+
+  public Duration minimumWait() {
+    return minimumWait;
+  }
+
+  public boolean isOperationInFlight(String appGuid) {
+    return appGuid != null && inFlight.containsKey(appGuid);
+  }
+
+  public Map<String, InFlightOperation> inFlightOperations() {
+    return Map.copyOf(inFlight);
+  }
+
+  /** Marks an app operation as running on the render thread and returns its {@link Activity}. */
+  public Activity startOperation(ApplicationCatalog.App app, String badgeLabel) {
+    Objects.requireNonNull(app);
+    Objects.requireNonNull(badgeLabel);
+    Activity opActivity = Activity.start(badgeLabel);
+    inFlight.put(app.guid(),
+        new InFlightOperation(app.guid(), app.name(), badgeLabel, opActivity));
+    return opActivity;
+  }
+
+  /** Updates the step badge of a running app operation while preserving its elapsed timer. */
+  public void updateOperationBadge(String appGuid, String badgeLabel) {
+    Objects.requireNonNull(appGuid);
+    Objects.requireNonNull(badgeLabel);
+    InFlightOperation current = inFlight.get(appGuid);
+    if (current != null) {
+      inFlight.put(appGuid,
+          new InFlightOperation(current.appGuid(), current.appName(), badgeLabel,
+              current.activity()));
+    }
+  }
+
+  /** Clears a finished app operation and optionally replaces the app entry in the catalog. */
+  public void finishOperation(String appGuid, ApplicationCatalog.App updatedApp) {
+    if (appGuid != null) {
+      inFlight.remove(appGuid);
+    }
+    if (updatedApp != null && catalog != null) {
+      catalog = catalog.withUpdatedApp(updatedApp);
+      reconcile();
+    }
+  }
+
+  /** Replaces a single app entry in the catalog while preserving filter and selection. */
+  public void updateApp(ApplicationCatalog.App updatedApp) {
+    Objects.requireNonNull(updatedApp);
+    if (catalog != null) {
+      catalog = catalog.withUpdatedApp(updatedApp);
+      reconcile();
+    }
   }
 
   public void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
@@ -322,9 +389,7 @@ public final class ApplicationCatalogPage implements ShellPage {
     List<ApplicationCatalog.App> visible = catalog.filter(filter);
     String title = " Apps  " + visible.size() + "/" + catalog.apps().size()
         + "  Orgs " + catalog.organizations() + "  Spaces " + catalog.spaces()
-        + (refreshing && activity != null
-            ? "  [" + LoadingView.glyph(activity) + " refreshing " + progress.percent() + "%] "
-            : " ");
+        + titleBadges() + " ";
     if (visible.isEmpty()) {
       Element empty = filter.isBlank()
           ? column(text(" No apps."),
@@ -342,13 +407,39 @@ public final class ApplicationCatalogPage implements ShellPage {
       }
     }
     Pattern matches = matchPattern(filter);
-    int widestMetadata = visible.stream().map(app -> metadata(app, filter))
+    int stateWidth = Math.max(8, visible.stream().map(this::stateLabel)
+        .mapToInt(value -> value.codePointCount(0, value.length())).max().orElse(8));
+    int widestMetadata = visible.stream().map(app -> metadata(app, filter, stateWidth))
         .mapToInt(value -> value.codePointCount(0, value.length())).max().orElse(0);
     int nameWidth = Math.max(8, Math.min(45, width - widestMetadata - 4));
-    return list().data(visible, app -> richText(highlight(row(app, matches, nameWidth), matches)))
+    return list().data(visible, app -> richText(renderRow(app, matches, nameWidth, stateWidth)))
         .title(title).rounded().borderColor(Color.CYAN).highlightSymbol("> ")
         .highlightStyle(Style.create().bg(Color.indexed(236)).bold())
         .selected(selected).autoScroll().focusable(false).fill();
+  }
+
+  private String titleBadges() {
+    StringBuilder badges = new StringBuilder();
+    if (refreshing && activity != null) {
+      badges.append("  [").append(LoadingView.glyph(activity)).append(" refreshing ")
+          .append(progress.percent()).append("%]");
+    }
+    if (!inFlight.isEmpty()) {
+      InFlightOperation first = inFlight.values().iterator().next();
+      badges.append("  [").append(LoadingView.glyph(first.activity())).append(' ');
+      if (inFlight.size() == 1) {
+        long seconds = first.activity().elapsed().toSeconds();
+        badges.append(first.appName()).append(": ")
+            .append(first.badgeLabel().toLowerCase(Locale.ROOT));
+        if (seconds >= 1) {
+          badges.append(' ').append(LoadingView.shortDuration(first.activity().elapsed()));
+        }
+      } else {
+        badges.append(inFlight.size()).append(" ops running");
+      }
+      badges.append(']');
+    }
+    return badges.toString();
   }
 
   private final class CatalogLayout extends StyledElement<CatalogLayout> {
@@ -423,17 +514,46 @@ public final class ApplicationCatalogPage implements ShellPage {
     }
   }
 
-  private String row(ApplicationCatalog.App app, Pattern matches, int nameWidth) {
+  private Text renderRow(ApplicationCatalog.App app, Pattern matches, int nameWidth,
+      int stateWidth) {
+    InFlightOperation op = inFlight.get(app.guid());
+    if (op == null) {
+      return highlight(row(app, matches, nameWidth, stateWidth), matches);
+    }
     String name = displayName(app.name(), matches, nameWidth);
-    int padding = Math.max(0, nameWidth - name.codePointCount(0, name.length()));
-    return name + " ".repeat(padding) + metadata(app, filter);
+    int namePadding = Math.max(0, nameWidth - name.codePointCount(0, name.length()));
+    String prefix = name + " ".repeat(namePadding) + "  " + matchingIdentifiers(app, filter);
+    String badge = paddedState(stateLabel(app), stateWidth);
+    String suffix = "  c: " + date(app.createdAt()) + " \u203a u: " + date(app.updatedAt())
+        + "  " + app.orgName() + " \u203a " + app.spaceName();
+    Color badgeColor = op.badgeLabel().startsWith("STOP") ? Color.LIGHT_YELLOW : Color.LIGHT_CYAN;
+    List<Span> spans = new ArrayList<>(highlightSpans(prefix, matches));
+    spans.add(Span.styled(badge, Style.create().fg(badgeColor).bold()));
+    spans.addAll(highlightSpans(suffix, matches));
+    return Text.from(Line.from(spans));
   }
 
-  private static String metadata(ApplicationCatalog.App app, String filter) {
+  private String row(ApplicationCatalog.App app, Pattern matches, int nameWidth, int stateWidth) {
+    String name = displayName(app.name(), matches, nameWidth);
+    int padding = Math.max(0, nameWidth - name.codePointCount(0, name.length()));
+    return name + " ".repeat(padding) + metadata(app, filter, stateWidth);
+  }
+
+  private String metadata(ApplicationCatalog.App app, String filter, int stateWidth) {
     String identifiers = matchingIdentifiers(app, filter);
-    return "  " + identifiers + String.format("%-8s", app.state())
+    return "  " + identifiers + paddedState(stateLabel(app), stateWidth)
         + "  c: " + date(app.createdAt()) + " \u203a u: " + date(app.updatedAt())
         + "  " + app.orgName() + " \u203a " + app.spaceName();
+  }
+
+  private String stateLabel(ApplicationCatalog.App app) {
+    InFlightOperation op = inFlight.get(app.guid());
+    return op == null ? app.state() : LoadingView.glyph(op.activity()) + " " + op.badgeLabel();
+  }
+
+  private static String paddedState(String label, int width) {
+    int pad = Math.max(0, width - label.codePointCount(0, label.length()));
+    return label + " ".repeat(pad);
   }
 
   private static String matchingIdentifiers(ApplicationCatalog.App app, String filter) {
@@ -490,16 +610,23 @@ public final class ApplicationCatalogPage implements ShellPage {
     if (matches == null) {
       return Text.from(row);
     }
+    return Text.from(Line.from(highlightSpans(row, matches)));
+  }
+
+  private static List<Span> highlightSpans(String text, Pattern matches) {
+    if (matches == null) {
+      return List.of(Span.raw(text));
+    }
     List<Span> spans = new ArrayList<>();
-    Matcher matcher = matches.matcher(row);
+    Matcher matcher = matches.matcher(text);
     int end = 0;
     while (matcher.find()) {
-      spans.add(Span.raw(row.substring(end, matcher.start())));
+      spans.add(Span.raw(text.substring(end, matcher.start())));
       spans.add(Span.styled(matcher.group(), Style.create().fg(Color.LIGHT_YELLOW).bold()));
       end = matcher.end();
     }
-    spans.add(Span.raw(row.substring(end)));
-    return Text.from(Line.from(spans));
+    spans.add(Span.raw(text.substring(end)));
+    return spans;
   }
 
   private static String date(String value) {
