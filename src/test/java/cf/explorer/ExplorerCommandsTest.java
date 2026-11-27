@@ -75,7 +75,17 @@ class ExplorerCommandsTest {
     type(state, "/");
     assertEquals(List.of("export", "open", "keystore", "refresh", "quit"),
         state.suggestions().stream().map(ShellCommand::name).toList());
+    String commandView = render(state);
+    assertTrue(commandView.contains("/export    Ctrl+E  Export selected app environment"),
+        commandView);
+    assertTrue(commandView.contains("/open      Ctrl+O  Open selected app"), commandView);
+    assertTrue(commandView.contains("/keystore  Ctrl+K  Export and inspect"), commandView);
+    assertTrue(commandView.contains("/refresh   Ctrl+R  Reload catalog"), commandView);
+    assertTrue(commandView.contains("/quit      Ctrl+X  Exit cf-explorer"), commandView);
     state.cancel();
+    String footer = render(state);
+    assertTrue(footer.contains("Shortcuts:  Ctrl+E export  Ctrl+O open  Ctrl+K keystore"
+        + "  Ctrl+R refresh  Ctrl+X quit"), footer);
 
     // /open runs off render thread and reports success
     type(state, "/open");
@@ -117,6 +127,24 @@ class ExplorerCommandsTest {
     worker.remove().run();
     dispatch.remove().run();
     assertEquals("Catalog refreshed.", state.status());
+
+    // Ctrl+R refreshes from the catalog without opening the command view
+    assertTrue(state.runShortcut('r'));
+    assertEquals("Refreshing catalog...", state.status());
+    worker.remove().run();
+    dispatch.remove().run();
+    assertEquals("Catalog refreshed.", state.status());
+
+    // Ctrl+E opens the export page, where Ctrl+R is unavailable and Ctrl+B returns
+    assertTrue(state.runShortcut('e'));
+    assertTrue(render(state).contains("Exporting environment for billing-api"));
+    worker.remove().run();
+    dispatch.remove().run();
+    assertTrue(render(state).contains("Environment Exported"));
+    assertTrue(state.runShortcut('r'));
+    assertEquals("Command unavailable: /refresh", state.status());
+    assertTrue(state.runShortcut('b'));
+    assertEquals(APP, state.selected(ApplicationCatalog.App.class));
   }
 
   @Test

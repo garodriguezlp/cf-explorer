@@ -3,6 +3,7 @@ package cf.explorer.ui;
 import static dev.tamboui.toolkit.Toolkit.column;
 import static dev.tamboui.toolkit.Toolkit.list;
 import static dev.tamboui.toolkit.Toolkit.panel;
+import static dev.tamboui.toolkit.Toolkit.richText;
 import static dev.tamboui.toolkit.Toolkit.text;
 
 import cf.explorer.model.ShellCommand;
@@ -11,6 +12,9 @@ import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Color;
 import dev.tamboui.style.Style;
 import dev.tamboui.terminal.Frame;
+import dev.tamboui.text.Line;
+import dev.tamboui.text.Span;
+import dev.tamboui.text.Text;
 import dev.tamboui.toolkit.element.Element;
 import dev.tamboui.toolkit.element.RenderContext;
 import dev.tamboui.toolkit.element.Size;
@@ -44,10 +48,12 @@ public final class ShellView {
         layout.add(compact ? empty : panel(empty).title(" Commands ")
             .rounded().borderColor(Color.LIGHT_CYAN).length(3));
       } else {
-        List<String> rows = suggestions.stream()
-            .map(suggestion -> "/" + suggestion.name() + "  -  " + suggestion.description())
-            .toList();
-        ListElement<?> commands = list(rows).highlightSymbol("> ")
+        int nameWidth = suggestions.stream().mapToInt(c -> c.name().length()).max().orElse(0);
+        int shortcutWidth = suggestions.stream().mapToInt(c -> c.shortcutLabel().length())
+            .max().orElse(0);
+        ListElement<?> commands = list().data(suggestions,
+                suggestion -> richText(suggestionRow(suggestion, nameWidth, shortcutWidth)))
+            .highlightSymbol("> ")
             .highlightStyle(Style.create().fg(Color.LIGHT_CYAN).bold())
             .selected(state.suggestionIndex()).autoScroll().focusable(false);
         if (compact) {
@@ -71,13 +77,44 @@ public final class ShellView {
       layout.add(text(" " + state.status()).fg(Color.LIGHT_YELLOW));
     }
     if (compact) {
-      layout.add(text(" Esc back/cancel  |  Ctrl-C quit").fg(Color.GRAY));
+      layout.add(text(" Esc back/cancel  |  Ctrl+C quit").fg(Color.GRAY));
     } else {
-      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run")
-          .fg(Color.GRAY));
-      layout.add(text(" Esc cancel/back  |  Ctrl-C quit").fg(Color.GRAY));
+      layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run"
+          + "  |  Esc cancel/back  |  Ctrl+C quit").fg(Color.GRAY));
+      layout.add(richText(shortcutHints(state)));
     }
     return column(layout.toArray(Element[]::new));
+  }
+
+  /** One command-view row: {@code /name  Ctrl+K  description}, with aligned columns. */
+  private static Text suggestionRow(ShellCommand command, int nameWidth, int shortcutWidth) {
+    List<Span> spans = new ArrayList<>();
+    spans.add(Span.raw("/" + pad(command.name(), nameWidth) + "  "));
+    if (shortcutWidth > 0) {
+      spans.add(Span.styled(pad(command.shortcutLabel(), shortcutWidth),
+          Style.create().fg(Color.LIGHT_MAGENTA)));
+      spans.add(Span.raw("  "));
+    }
+    spans.add(Span.raw(command.description()));
+    return Text.from(Line.from(spans));
+  }
+
+  /** Footer listing the shortcuts of commands that can run right now. */
+  private static Text shortcutHints(ShellState state) {
+    List<Span> spans = new ArrayList<>();
+    spans.add(Span.styled(" Shortcuts:", Style.create().fg(Color.GRAY)));
+    for (ShellCommand command : state.shortcutCommands()) {
+      if (command.available().test(state)) {
+        spans.add(Span.styled("  " + command.shortcutLabel(),
+            Style.create().fg(Color.LIGHT_MAGENTA)));
+        spans.add(Span.styled(" " + command.name(), Style.create().fg(Color.GRAY)));
+      }
+    }
+    return Text.from(Line.from(spans));
+  }
+
+  private static String pad(String value, int width) {
+    return value + " ".repeat(Math.max(0, width - value.length()));
   }
 
   private static final class ShellLayout extends StyledElement<ShellLayout> {

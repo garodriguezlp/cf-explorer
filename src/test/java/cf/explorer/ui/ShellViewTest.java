@@ -147,7 +147,7 @@ class ShellViewTest {
     keys(state, "A/in");
     String suggestions = render(state);
     assertTrue(suggestions.contains("/in|"), suggestions);
-    assertTrue(suggestions.contains("/inspect  -  Open the selected item"), suggestions);
+    assertTrue(suggestions.contains("/inspect  Open the selected item"), suggestions);
     keys(state, KeyCode.ENTER);
     String detail = render(state);
     assertTrue(detail.contains(" Detail "), detail);
@@ -182,7 +182,7 @@ class ShellViewTest {
     assertTrue(screen.contains("> Foxtrot"), screen);
     assertTrue(screen.contains("> /quit"), screen);
     assertTrue(screen.contains(" /|"), screen);
-    assertTrue(screen.contains("Ctrl-C quit"), screen);
+    assertTrue(screen.contains("Ctrl+C quit"), screen);
   }
 
   @Test
