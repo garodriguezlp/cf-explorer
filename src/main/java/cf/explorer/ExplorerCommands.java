@@ -103,7 +103,7 @@ public final class ExplorerCommands {
             return;
           }
           String url = AppsManagerUrl.build(cfWebUrl, app);
-          state.showStatus("Opening " + app.name() + " in Apps Manager...");
+          state.showProgress("Opening " + app.name() + " in Apps Manager...");
           try {
             CompletableFuture.runAsync(() -> {
               try {

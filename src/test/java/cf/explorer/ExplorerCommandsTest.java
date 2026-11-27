@@ -1,6 +1,7 @@
 package cf.explorer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -91,8 +92,10 @@ class ExplorerCommandsTest {
     type(state, "/open");
     state.confirm();
     assertEquals("Opening billing-api in Apps Manager...", state.status());
+    assertTrue(state.statusActivity() != null, "the status line spins while the browser opens");
     worker.remove().run();
     dispatch.remove().run();
+    assertNull(state.statusActivity());
     assertEquals("https://apps.example.com/organizations/org-1/spaces/space-1/applications/app-1",
         openedUrl.get());
     assertEquals("Opened billing-api in Apps Manager.", state.status());
