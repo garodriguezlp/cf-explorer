@@ -1,5 +1,14 @@
 package cf.explorer.env;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.patch;
+import static com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -8,8 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cf.explorer.catalog.ApplicationCatalog;
+import cf.explorer.catalog.CloudFoundryCatalogClient;
 import cf.explorer.env.EnvDraft.ChangeKind;
 import cf.explorer.env.EnvDraft.Entry;
+import com.github.tomakehurst.wiremock.WireMockServer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,15 +47,18 @@ class EnvDraftTest {
   }
 
   @Test
-  void validatesCloudFoundryKeySyntaxAndRejectsSystemVariables() {
+  void allowsDottedAndCustomCloudFoundryKeysWhileRejectingBlankAndSystemVariables() {
     assertNull(EnvDraft.validateKey("APP_ENV"));
     assertNull(EnvDraft.validateKey("_INTERNAL_2"));
     assertNull(EnvDraft.validateKey("spring_profiles_active"));
+    assertNull(EnvDraft.validateKey("foo.dot.variable"));
+    assertNull(EnvDraft.validateKey("spring.datasource.url"));
+    assertNull(EnvDraft.validateKey("HAS-HYPHEN"));
+    assertNull(EnvDraft.validateKey("1STARTS_WITH_DIGIT"));
 
+    assertNotNull(EnvDraft.validateKey(null));
     assertNotNull(EnvDraft.validateKey(""));
     assertNotNull(EnvDraft.validateKey("   "));
-    assertNotNull(EnvDraft.validateKey("1STARTS_WITH_DIGIT"));
-    assertNotNull(EnvDraft.validateKey("HAS-HYPHEN"));
     assertNotNull(EnvDraft.validateKey("VCAP_SERVICES"));
     assertNotNull(EnvDraft.validateKey("vcap_application"));
     assertNotNull(EnvDraft.validateKey("PORT"));
@@ -132,6 +146,52 @@ class EnvDraftTest {
 
     boolean[] matched = EnvDraft.matchedKeyChars("DB_URL", "du");
     assertArrayEquals(new boolean[] {true, false, false, true, false, false}, matched);
+
+    EnvDraft dottedDraft = new EnvDraft(Map.of("foo.dot.variable", "v1", "OTHER_VAR", "v2"));
+    assertEquals(List.of("foo.dot.variable"),
+        dottedDraft.filter("fdv").stream().map(Entry::key).toList());
+  }
+
+  @Test
+  void wireMockLoadsUpdatesAndPatchesDottedVariableKeyEndToEnd() throws Exception {
+    WireMockServer server = new WireMockServer(wireMockConfig().dynamicPort());
+    server.start();
+    try {
+      server.stubFor(post(urlPathEqualTo("/oauth/token"))
+          .willReturn(okJson("{\"access_token\":\"test-token\"}")));
+      server.stubFor(get(urlPathEqualTo("/v3/apps/app-1/environment_variables"))
+          .withHeader("Authorization", equalTo("Bearer test-token"))
+          .willReturn(okJson("{\"var\":{\"foo.dot.variable\":\"initial\",\"APP_ENV\":\"dev\"}}")));
+      server.stubFor(patch(urlPathEqualTo("/v3/apps/app-1/environment_variables"))
+          .withHeader("Authorization", equalTo("Bearer test-token"))
+          .withRequestBody(equalToJson(
+              "{\"var\":{\"foo.dot.variable\":\"updated\",\"extra.dot.variable\":\"created\"}}"))
+          .willReturn(okJson(
+              "{\"var\":{\"foo.dot.variable\":\"updated\",\"extra.dot.variable\":\"created\",\"APP_ENV\":\"dev\"}}")));
+
+      CloudFoundryCatalogClient client = new CloudFoundryCatalogClient(
+          server.baseUrl(), server.baseUrl(), "admin", "admin");
+      EnvEditorService service = new EnvEditorService(
+          client::fetchEnvironmentVariables, client::patchEnvironmentVariables);
+      var app = new ApplicationCatalog.App("app-1", "orders", "STARTED", "s1", "prod", "o1", "org",
+          "2025-01-01", "2025-01-02");
+
+      EnvDraft draft = service.loadDraft(app);
+      assertEquals("initial", draft.entry("foo.dot.variable").effectiveValue());
+
+      draft.stageSet("foo.dot.variable", "updated");
+      draft.stageSet("extra.dot.variable", "created");
+
+      Map<String, String> patched = service.apply(app, draft);
+      assertEquals("updated", patched.get("foo.dot.variable"));
+      assertEquals("created", patched.get("extra.dot.variable"));
+
+      server.verify(1, patchRequestedFor(urlPathEqualTo("/v3/apps/app-1/environment_variables"))
+          .withRequestBody(equalToJson(
+              "{\"var\":{\"foo.dot.variable\":\"updated\",\"extra.dot.variable\":\"created\"}}")));
+    } finally {
+      server.stop();
+    }
   }
 
   @Test

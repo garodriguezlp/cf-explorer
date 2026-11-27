@@ -10,14 +10,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 
 /**
  * Mutable draft of an application's user-provided environment variables, tracking staged additions,
  * updates, and deletions against the Cloud Foundry baseline.
  */
 public final class EnvDraft {
-  private static final Pattern VALID_KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
   private static final Set<String> RESERVED_SYSTEM_KEYS = Set.of(
       "VCAP_APPLICATION", "VCAP_SERVICES", "MEMORY_LIMIT", "PORT");
   private static final Comparator<String> KEY_ORDER =
@@ -81,9 +79,6 @@ public final class EnvDraft {
   public static String validateKey(String key) {
     if (key == null || key.isBlank()) {
       return "Variable name must not be blank.";
-    }
-    if (!VALID_KEY.matcher(key).matches()) {
-      return "Invalid key '" + key + "': use letters, digits, and underscores (cannot start with a digit).";
     }
     String upper = key.toUpperCase(Locale.ROOT);
     if (RESERVED_SYSTEM_KEYS.contains(upper) || upper.startsWith("CF_INSTANCE_")) {
@@ -197,7 +192,8 @@ public final class EnvDraft {
 
   /**
    * Returns a non-negative gap penalty when {@code needle} is an in-order subsequence of
-   * {@code haystack} (rewarding word-boundary hits after {@code _}), or {@code -1} when not matched.
+   * {@code haystack} (rewarding word-boundary hits after {@code _}, {@code .}, or {@code -}), or
+   * {@code -1} when not matched.
    */
   private static int fuzzySubsequencePenalty(String haystack, String needle) {
     int[] positions = fuzzyPositions(haystack, needle);
@@ -207,7 +203,7 @@ public final class EnvDraft {
     int penalty = positions[0];
     for (int i = 1; i < positions.length; i++) {
       int gap = positions[i] - positions[i - 1] - 1;
-      boolean boundary = positions[i] > 0 && haystack.charAt(positions[i] - 1) == '_';
+      boolean boundary = positions[i] > 0 && isKeySeparator(haystack.charAt(positions[i] - 1));
       penalty += boundary ? Math.min(gap, 1) : gap * 2;
     }
     return penalty;
@@ -222,9 +218,10 @@ public final class EnvDraft {
     for (int n = 0; n < lowerNeedle.length(); n++) {
       char target = lowerNeedle.charAt(n);
       int found = -1;
-      // Prefer boundary match (start of key or immediately after '_') when available
+      // Prefer boundary match (start of key or immediately after '_', '.', or '-') when available
       for (int scan = h; scan < lowerHaystack.length(); scan++) {
-        if (lowerHaystack.charAt(scan) == target && (scan == 0 || lowerHaystack.charAt(scan - 1) == '_')) {
+        if (lowerHaystack.charAt(scan) == target
+            && (scan == 0 || isKeySeparator(lowerHaystack.charAt(scan - 1)))) {
           found = scan;
           break;
         }
@@ -239,6 +236,10 @@ public final class EnvDraft {
       h = found + 1;
     }
     return pos;
+  }
+
+  private static boolean isKeySeparator(char ch) {
+    return ch == '_' || ch == '.' || ch == '-';
   }
 
   /**
