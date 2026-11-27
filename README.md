@@ -49,6 +49,8 @@ Windows):
 ```
 
 Java 17 or newer is required; JBang provisions it automatically when none is found.
+On the first remote run JBang asks whether to trust the source; trusting
+`https://github.com/garodriguezlp/` covers future runs and updates.
 
 ## Try it without a foundation
 
