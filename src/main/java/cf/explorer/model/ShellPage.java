@@ -20,6 +20,11 @@ public interface ShellPage {
     return 0;
   }
 
+  /** Background work this page is running, such as a refresh, or {@code null}. */
+  default Activity activity() {
+    return null;
+  }
+
   default EventResult handleKey(KeyEvent event) {
     return EventResult.UNHANDLED;
   }

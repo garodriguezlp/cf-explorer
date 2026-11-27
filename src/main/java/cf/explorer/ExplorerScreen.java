@@ -15,6 +15,7 @@ import cf.explorer.ui.ShellView;
 import dev.tamboui.toolkit.app.ToolkitApp;
 import dev.tamboui.toolkit.element.Element;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -23,6 +24,8 @@ import java.util.function.Consumer;
 
 /** Wires configuration, services, and commands into the TamboUI application. */
 final class ExplorerScreen extends ToolkitApp {
+  /** Shortest time a wait state stays up, so fast responses do not flicker. */
+  static final Duration MINIMUM_WAIT = Duration.ofMillis(350);
   private final ExplorerConfig config;
   private final CachedCatalogService catalogService;
   private final ApplicationCatalogPage catalog = new ApplicationCatalogPage();
@@ -55,7 +58,8 @@ final class ExplorerScreen extends ToolkitApp {
             worker,
             dispatch),
         worker,
-        dispatch);
+        dispatch,
+        MINIMUM_WAIT);
   }
 
   @Override

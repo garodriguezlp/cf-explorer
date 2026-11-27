@@ -22,9 +22,13 @@ import dev.tamboui.toolkit.event.EventResult;
 import dev.tamboui.tui.event.KeyCode;
 import dev.tamboui.tui.event.KeyEvent;
 import dev.tamboui.tui.event.KeyModifiers;
+import java.time.Duration;
 import java.util.List;
 import java.util.ArrayDeque;
 import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -338,6 +342,54 @@ class ShellViewTest {
     String screen = render(state);
     assertTrue(screen.contains("Building report failed."), screen);
     assertFalse(screen.contains("private content"), screen);
+  }
+
+  @Test
+  void loadingPageAnimatesAndEscCancelsAndDiscardsTheLateResult() {
+    Queue<Runnable> worker = new ArrayDeque<>();
+    Queue<Runnable> render = new ArrayDeque<>();
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), ShellCommands.create(),
+        worker::add, render::add);
+    state.openAsyncPage("Building report", () -> () -> Toolkit.text("Report"));
+    assertEquals("Building report", state.loading().label());
+    String screen = render(state);
+    assertTrue(screen.contains(" Working "), screen);
+    assertTrue(screen.contains("Press Esc to cancel."), screen);
+    ShellView.handleKey(KeyEvent.ofKey(KeyCode.ESCAPE), state, () -> {});
+    assertNull(state.page());
+    assertNull(state.loading());
+    assertEquals("Cancelled: Building report.", state.status());
+    worker.remove().run();
+    render.remove().run();
+    assertNull(state.page());
+    assertTrue(render(state).contains("Root"));
+  }
+
+  @Test
+  void minimumWaitKeepsTheSpinnerUpForFastResults() throws InterruptedException {
+    BlockingQueue<Runnable> render = new LinkedBlockingQueue<>();
+    ShellState state = new ShellState(() -> Toolkit.text("Root"), List.of(), Runnable::run,
+        render::add, Duration.ofMillis(200));
+    state.openAsyncPage("Work", () -> () -> Toolkit.text("Done"));
+    assertTrue(render.isEmpty(), "a fast result waits for the minimum display time");
+    Runnable apply = render.poll(5, TimeUnit.SECONDS);
+    assertTrue(state.loading().elapsed().toMillis() >= 200);
+    apply.run();
+    assertNull(state.loading());
+    assertTrue(render(state).contains("Done"));
+  }
+
+  @Test
+  void statusLineSpinsWhileProgressIsShown() {
+    ShellState state = state(List.of("Atlas"));
+    state.showProgress("Opening Atlas...");
+    assertEquals("Opening Atlas...", state.statusActivity().label());
+    String screen = render(state);
+    assertTrue(screen.contains(" Opening Atlas..."), screen);
+    char spinner = screen.charAt(screen.indexOf("Opening Atlas...") - 2);
+    assertTrue(spinner >= '\u2800' && spinner <= '\u28ff', screen);
+    state.showStatus("Opened Atlas.");
+    assertNull(state.statusActivity());
   }
 
   @Test

@@ -6,6 +6,7 @@ import static dev.tamboui.toolkit.Toolkit.panel;
 import static dev.tamboui.toolkit.Toolkit.richText;
 import static dev.tamboui.toolkit.Toolkit.text;
 
+import cf.explorer.model.Activity;
 import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
 import dev.tamboui.layout.Rect;
@@ -39,7 +40,8 @@ public final class ShellView {
     boolean compact = height < 16;
     List<Element> layout = new ArrayList<>();
     layout.add(text(" CF EXPLORER").fg(Color.LIGHT_CYAN).bold());
-    layout.add(state.activePage().render());
+    Activity loading = state.loading();
+    layout.add(loading != null ? LoadingView.page(loading) : state.activePage().render());
 
     if (state.command() != null) {
       List<ShellCommand> suggestions = state.suggestions();
@@ -74,16 +76,34 @@ public final class ShellView {
         .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
         .rounded().borderColor(Color.LIGHT_CYAN).length(3));
     if (!state.status().isEmpty()) {
-      layout.add(text(" " + state.status()).fg(Color.LIGHT_YELLOW));
+      layout.add(statusLine(state));
     }
     if (compact) {
       layout.add(text(" Esc back/cancel  |  Ctrl+C quit").fg(Color.GRAY));
     } else {
       layout.add(text(" / commands  |  Up/Down select  |  Tab complete  |  Enter run"
-          + "  |  Esc cancel/back  |  Ctrl+C quit").fg(Color.GRAY));
+          + "  |  Esc cancel/back").fg(Color.GRAY));
       layout.add(richText(shortcutHints(state)));
     }
     return column(layout.toArray(Element[]::new));
+  }
+
+  /** The status message, led by a spinner and followed by elapsed time while work runs. */
+  private static Element statusLine(ShellState state) {
+    Activity activity = state.statusActivity();
+    if (activity == null) {
+      return text(" " + state.status()).fg(Color.LIGHT_YELLOW);
+    }
+    long seconds = activity.elapsed().toSeconds();
+    List<Span> spans = new ArrayList<>();
+    spans.add(Span.styled(" " + LoadingView.glyph(activity) + " ",
+        Style.create().fg(Color.LIGHT_CYAN)));
+    spans.add(Span.styled(state.status(), Style.create().fg(Color.LIGHT_YELLOW)));
+    if (seconds >= 1) {
+      spans.add(Span.styled("  " + LoadingView.shortDuration(activity.elapsed()),
+          Style.create().fg(Color.GRAY)));
+    }
+    return richText(Text.from(Line.from(spans)));
   }
 
   /** One command-view row: {@code /name  Ctrl+K  description}, with aligned columns. */
