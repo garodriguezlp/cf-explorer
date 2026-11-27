@@ -82,7 +82,8 @@ public final class ShellView {
           : pageInput != null ? editing(pageInput, state.activePage().inputCursor())
               : "Type / for commands";
       layout.add(panel(text(" " + input).fg(Color.BRIGHT_WHITE))
-          .title(state.command() != null ? " Command " : pageInput != null ? " Filter " : " Input ")
+          .title(state.command() != null ? " Command "
+              : pageInput != null ? " " + state.activePage().inputTitle() + " " : " Input ")
           .rounded().borderColor(Color.LIGHT_CYAN).length(3));
     }
     if (!state.status().isEmpty()) {
@@ -189,7 +190,8 @@ public final class ShellView {
     if (!event.isPressOrRepeat()) {
       return EventResult.UNHANDLED;
     }
-    boolean slash = event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/';
+    boolean slash = event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/'
+        && !state.activePage().capturesSlash();
     char shortcut = shortcutKey(event, state);
     if (event.isCtrlC()) {
       state.requestQuit();

@@ -7,6 +7,7 @@ import cf.explorer.catalog.CatalogCacheStore;
 import cf.explorer.catalog.CatalogProgress;
 import cf.explorer.catalog.CloudFoundryCatalogClient;
 import cf.explorer.config.ExplorerConfig;
+import cf.explorer.env.EnvEditorService;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.io.ClipboardSupport;
 import cf.explorer.keystore.KeystoreService;
@@ -48,6 +49,8 @@ final class ExplorerScreen extends ToolkitApp {
         config.jksDir(), config.copyToClipboard(), clipboard);
     AppLifecycleService lifecycleService = new AppLifecycleService(
         client, catalogService::updateCachedApp);
+    EnvEditorService envEditorService = new EnvEditorService(
+        client::fetchEnvironmentVariables, client::patchEnvironmentVariables);
     Executor worker = ForkJoinPool.commonPool();
     Consumer<Runnable> dispatch = action -> runner().runOnRenderThread(action);
     this.state = new ShellState(
@@ -60,6 +63,7 @@ final class ExplorerScreen extends ToolkitApp {
             BrowserLauncher.system(),
             keystoreService,
             lifecycleService,
+            envEditorService,
             config.env(),
             worker,
             dispatch),

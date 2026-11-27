@@ -2,8 +2,9 @@
 
 An interactive terminal browser for Cloud Foundry. Filter every application across
 your organizations and spaces, start, stop, restart, or restage apps in the
-background, export an app's environment to a `.env` file, decode and inspect its JKS
-keystore, or open it in Apps Manager, all from one command-driven screen.
+background, interactively inspect and edit an app's environment variables, export an
+app's environment to a `.env` file, decode and inspect its JKS keystore, or open it
+in Apps Manager, all from one command-driven screen.
 
 ![cf-explorer catalog with command suggestions](docs/cf-explorer-catalog.png)
 
@@ -76,6 +77,7 @@ command view lists each command's shortcut.
 
 | Command | Shortcut | Available when | What it does |
 |---|---|---|---|
+| `/env` | `Ctrl+L` | An app is selected | Opens the interactive environment editor to fuzzy-search, add, update, or delete variables |
 | `/export` | `Ctrl+E` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
 | `/keystore` | `Ctrl+K` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
 | `/open` | `Ctrl+O` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |
@@ -83,8 +85,13 @@ command view lists each command's shortcut.
 | `/stop` | `Ctrl+P` | Selected app is not `STOPPED` | Prompts for confirmation, stops the app in the background, and updates the catalog and cache |
 | `/restart` | `Ctrl+T` | An app is selected | Prompts for confirmation, restarts the app in the background, and updates the catalog and cache |
 | `/restage` | `Ctrl+G` | An app is selected | Prompts for confirmation, stages a new build from the latest ready package, assigns the droplet, and restarts the app in the background |
+| `/new` | `Ctrl+N` | Inside `/env` | Prompts for `KEY=VALUE` (or `Key` then `Value`), confirms, and stages a new variable |
+| `/set` | `Enter` | Inside `/env` with a variable selected | Pre-fills the current value for in-place editing, confirms, and stages an update |
+| `/delete` | | Inside `/env` with a variable selected | Confirms and stages deletion of the selected variable |
+| `/undo` | | Inside `/env` on a staged variable | Reverts the staged change on the selected variable |
+| `/apply` | `Ctrl+Y` | Inside `/env` with staged changes | Confirms all staged changes, patches Cloud Foundry atomically, and offers an inline `/restart` |
 | `/refresh` | `Ctrl+R` | On the catalog | Reloads from Cloud Foundry, keeps the filter and selection, and updates the cache only on success |
-| `/back` | `Ctrl+B` | On any opened page | Returns to the previous page |
+| `/back` | `Ctrl+B` | On any opened page | Returns to the previous page (asks to confirm if `/env` has unapplied changes) |
 | `/quit` | `Ctrl+X` | Always | Exits |
 
 Shortcuts work while typing in the filter or the command view and leave the typed
@@ -244,6 +251,7 @@ published `cf-explorer@garodriguezlp/cf-explorer` path is covered before it ship
 | `cf.explorer` | Entry point and CLI (`CfExplorer`), wiring (`ExplorerScreen`), and commands (`ExplorerCommands`) |
 | `cf.explorer.config` | Resolved configuration and export post-processors |
 | `cf.explorer.catalog` | Catalog model, UAA and CF v3 client, profile cache |
+| `cf.explorer.env` | Environment variable draft staging, fuzzy search, and `PATCH` service |
 | `cf.explorer.export` | `.env` formatting and export |
 | `cf.explorer.keystore` | JKS decoding, file writing, and certificate inspection |
 | `cf.explorer.lifecycle` | App `start`, `stop`, `restart`, and multi-step `restage` orchestration |

@@ -1,0 +1,18 @@
+{
+  "name": "CF API v3 — PATCH /v3/apps/*/environment_variables",
+  "request": {
+    "method": "PATCH",
+    "urlPathPattern": "/v3/apps/[^/]+/environment_variables",
+    "headers": {
+      "Authorization": { "matches": "Bearer .+" }
+    }
+  },
+  "response": {
+    "fixedDelayMilliseconds": 600,
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "var": {}
+    }
+  }
+}

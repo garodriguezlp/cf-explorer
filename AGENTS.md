@@ -33,12 +33,13 @@ Maven is the development build. Keep both working from the same sources:
   (HTTP, files, clipboard, browser) goes through the worker executor, and results are
   applied through the render dispatcher. Use `ShellState.openAsyncPage` for page-producing
   work; stale results must be dropped when the user has navigated away or quit.
-- Domain packages (`catalog`, `export`, `keystore`, `browser`, `config`) must not depend on
+- Domain packages (`catalog`, `env`, `export`, `keystore`, `lifecycle`, `browser`, `config`) must not depend on
   `ui` or `model`.
 - Commands are registered in `ExplorerCommands`; availability predicates decide when they
-  appear in suggestions. Command names are single lowercase words, and each command declares
-  a unique, mnemonic `Ctrl+<letter>` shortcut. `ShellCommand.RESERVED_SHORTCUTS` lists the
-  letters terminals reserve or alias (Ctrl+C/D/H/I/J/M/Q/S/W/Z), which commands cannot use.
+  appear in suggestions. Command names are single lowercase words, and top-level/frequent
+  commands declare a unique, mnemonic `Ctrl+<letter>` shortcut. `ShellCommand.RESERVED_SHORTCUTS`
+  lists the letters terminals or OSes reserve or alias (Ctrl+A/C/D/F/H/I/J/M/Q/S/V/W/Z), which
+  commands cannot use.
 - Every wait shows feedback. Pages expose running work through `ShellPage.activity()`,
   async pages use `ShellState.openAsyncPage`, and short background actions use
   `ShellState.showProgress`. `ui.LoadingView` derives animation frames from elapsed time;
@@ -46,7 +47,9 @@ Maven is the development build. Keep both working from the same sources:
 
 ## Security and errors
 
-- Never show or log secrets, passwords, tokens, environment values, or raw HTTP bodies.
+- Never log secrets, passwords, tokens, environment values, or raw HTTP bodies, and never
+  expose them in `/export` or `/keystore` summaries. The interactive `/env` editor displays
+  keys and values on screen so users can inspect and edit them directly.
   User-facing failure text comes from `ui.ErrorMessages.describe`, `CloudFoundryException`,
   or `KeystoreService.SafeKeystoreException`, never from an arbitrary exception message.
 - Logs go to `~/.cf-explorer[/<env>]/cf-explorer.log` via `io.LogSetup`; nothing may write
