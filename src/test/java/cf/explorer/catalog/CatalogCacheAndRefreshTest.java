@@ -150,6 +150,18 @@ class CatalogCacheAndRefreshTest {
     assertEquals("Catalog refreshed.", status.get());
   }
 
+  @Test
+  void removesDeletedAppFromCacheOnlyWhenPresent() throws Exception {
+    CatalogCacheStore store = new CatalogCacheStore(temp.resolve("cache"));
+    CachedCatalogService service = new CachedCatalogService(() -> snapshot("doomed"), store);
+    service.removeCachedApp("a1"); // no cache yet: nothing to do
+    service.load(false);
+    service.removeCachedApp("missing");
+    assertEquals(1, store.readIfPresent().orElseThrow().apps().size());
+    service.removeCachedApp("a1");
+    assertTrue(store.readIfPresent().orElseThrow().apps().isEmpty());
+  }
+
   private static CloudFoundryCatalogClient.CatalogSnapshot snapshot(String appName)
       throws IOException {
     return new CloudFoundryCatalogClient.CatalogSnapshot(

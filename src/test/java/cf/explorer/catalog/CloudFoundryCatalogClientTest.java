@@ -211,6 +211,49 @@ class CloudFoundryCatalogClientTest {
   }
 
   @Test
+  void deletesAppsPollsJobsAndReportsSafeErrors() throws Exception {
+    WireMockServer server = new WireMockServer(wireMockConfig().dynamicPort());
+    server.start();
+    try {
+      server.stubFor(post(urlPathEqualTo("/oauth/token"))
+          .willReturn(okJson("{\"access_token\":\"token\"}")));
+      server.stubFor(delete(urlPathEqualTo("/v3/apps/app-1"))
+          .withHeader("Authorization", equalTo("Bearer token"))
+          .willReturn(aResponse().withStatus(202)
+              .withHeader("Location", server.baseUrl() + "/v3/jobs/job-9")));
+      server.stubFor(get(urlPathEqualTo("/v3/jobs/job-9"))
+          .willReturn(okJson("{\"guid\":\"job-9\",\"state\":\"FAILED\",\"errors\":"
+              + "[{\"title\":\"CF-AppDeleteFailed\",\"detail\":\"do-not-leak\"}]}")));
+      server.stubFor(delete(urlPathEqualTo("/v3/apps/no-job"))
+          .willReturn(aResponse().withStatus(202)));
+      server.stubFor(delete(urlPathEqualTo("/v3/apps/forbidden"))
+          .willReturn(aResponse().withStatus(403).withBody("{\"secret\":\"never-echo\"}")));
+      server.stubFor(delete(urlPathEqualTo("/v3/apps/locked"))
+          .willReturn(aResponse().withStatus(422).withBody("{\"secret\":\"never-echo\"}")));
+
+      CloudFoundryCatalogClient client = client(server, "admin");
+      assertEquals("job-9", client.deleteApp("app-1"));
+      var job = client.getJob("job-9");
+      assertEquals("FAILED", job.state());
+      assertEquals("CF-AppDeleteFailed", job.errorTitle());
+      assertNull(client.deleteApp("no-job"));
+
+      CloudFoundryException forbidden = assertThrows(CloudFoundryException.class,
+          () -> client.deleteApp("forbidden"));
+      assertTrue(forbidden.getMessage().contains("HTTP 403"), forbidden.getMessage());
+      assertFalse(forbidden.getMessage().contains("never-echo"));
+      CloudFoundryException locked = assertThrows(CloudFoundryException.class,
+          () -> client.deleteApp("locked"));
+      assertEquals("Delete app was rejected by Cloud Foundry (HTTP 422).", locked.getMessage());
+
+      assertEquals("abc", CloudFoundryCatalogClient.jobGuid("https://api.x/v3/jobs/abc?x=1"));
+      assertNull(CloudFoundryCatalogClient.jobGuid("https://api.x/v3/apps/abc"));
+    } finally {
+      server.stop();
+    }
+  }
+
+  @Test
   void httpInterceptorOmitsPayloadsByDefaultAndLogsFullTrafficInDebugMode() throws Exception {
     WireMockServer server = new WireMockServer(wireMockConfig().dynamicPort());
     server.start();

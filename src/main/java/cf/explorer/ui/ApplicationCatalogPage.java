@@ -159,6 +159,16 @@ public final class ApplicationCatalogPage implements ShellPage {
     }
   }
 
+  /** Removes a deleted app (and any in-flight badge) while preserving filter and selection. */
+  public void removeApp(String appGuid) {
+    Objects.requireNonNull(appGuid);
+    inFlight.remove(appGuid);
+    if (catalog != null) {
+      catalog = catalog.withoutApp(appGuid);
+      reconcile();
+    }
+  }
+
   public void startLoading(Supplier<ApplicationCatalog> load, Executor worker,
       Consumer<Runnable> dispatch, BooleanSupplier active) {
     Objects.requireNonNull(load);
@@ -533,7 +543,8 @@ public final class ApplicationCatalogPage implements ShellPage {
     String badge = paddedState(stateLabel(app), stateWidth);
     String suffix = "  c: " + date(app.createdAt()) + " \u203a u: " + date(app.updatedAt())
         + "  " + app.orgName() + " \u203a " + app.spaceName();
-    Color badgeColor = op.badgeLabel().startsWith("STOP") ? Color.LIGHT_YELLOW : Color.LIGHT_CYAN;
+    Color badgeColor = op.badgeLabel().startsWith("DELET") ? Color.LIGHT_RED
+        : op.badgeLabel().startsWith("STOP") ? Color.LIGHT_YELLOW : Color.LIGHT_CYAN;
     List<Span> spans = new ArrayList<>(highlightSpans(prefix, matches));
     spans.add(Span.styled(badge, Style.create().fg(badgeColor).bold()));
     spans.addAll(highlightSpans(suffix, matches));

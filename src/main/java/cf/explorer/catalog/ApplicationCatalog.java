@@ -24,6 +24,11 @@ public record ApplicationCatalog(int organizations, int spaces, List<App> apps) 
     return new ApplicationCatalog(organizations, spaces, next);
   }
 
+  public ApplicationCatalog withoutApp(String guid) {
+    List<App> next = apps.stream().filter(existing -> !existing.guid().equals(guid)).toList();
+    return new ApplicationCatalog(organizations, spaces, next);
+  }
+
   public List<App> filter(String query) {
     if (query.isBlank()) {
       return apps;

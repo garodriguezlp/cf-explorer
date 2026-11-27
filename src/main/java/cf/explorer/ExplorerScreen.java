@@ -11,6 +11,7 @@ import cf.explorer.env.EnvEditorService;
 import cf.explorer.export.EnvExportService;
 import cf.explorer.io.ClipboardSupport;
 import cf.explorer.keystore.KeystoreService;
+import cf.explorer.lifecycle.AppDeletionService;
 import cf.explorer.lifecycle.AppLifecycleService;
 import cf.explorer.model.ShellState;
 import cf.explorer.ui.ApplicationCatalogPage;
@@ -51,6 +52,8 @@ final class ExplorerScreen extends ToolkitApp {
         client, catalogService::updateCachedApp);
     EnvEditorService envEditorService = new EnvEditorService(
         client::fetchEnvironmentVariables, client::patchEnvironmentVariables);
+    AppDeletionService deletionService = new AppDeletionService(
+        client, catalogService::removeCachedApp);
     Executor worker = ForkJoinPool.commonPool();
     Consumer<Runnable> dispatch = action -> runner().runOnRenderThread(action);
     this.state = new ShellState(
@@ -64,6 +67,7 @@ final class ExplorerScreen extends ToolkitApp {
             keystoreService,
             lifecycleService,
             envEditorService,
+            deletionService,
             config.env(),
             worker,
             dispatch),

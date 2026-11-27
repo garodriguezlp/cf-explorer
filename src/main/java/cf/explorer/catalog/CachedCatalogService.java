@@ -94,6 +94,18 @@ public final class CachedCatalogService {
     }
   }
 
+  /** Removes a deleted app from the cache on disk if a cache is present; failures are non-fatal. */
+  public void removeCachedApp(String appGuid) {
+    if (appGuid == null || appGuid.isBlank()) {
+      return;
+    }
+    try {
+      cacheStore.removeApp(appGuid);
+    } catch (IOException | RuntimeException ex) {
+      LOG.warn("Catalog cache app removal failed", ex);
+    }
+  }
+
   private ApplicationCatalog fetchLiveAndUpdateCache(CatalogProgress progress)
       throws IOException, InterruptedException {
     CloudFoundryCatalogClient.CatalogSnapshot snapshot = liveLoader.loadSnapshot(progress);

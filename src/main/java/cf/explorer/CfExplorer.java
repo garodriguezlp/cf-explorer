@@ -34,12 +34,14 @@
 //SOURCES io/LogSetup.java
 //SOURCES keystore/KeystoreEntry.java
 //SOURCES keystore/KeystoreService.java
+//SOURCES lifecycle/AppDeletionService.java
 //SOURCES lifecycle/AppLifecycleService.java
 //SOURCES model/Activity.java
 //SOURCES model/ShellCommand.java
 //SOURCES model/ShellCommands.java
 //SOURCES model/ShellPage.java
 //SOURCES model/ShellState.java
+//SOURCES ui/AppDeletePage.java
 //SOURCES ui/ApplicationCatalogPage.java
 //SOURCES ui/EnvEditorPage.java
 //SOURCES ui/EnvExportPage.java

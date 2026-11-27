@@ -83,7 +83,15 @@ public final class ShellView {
     }
 
     String pageInput = state.command() == null ? state.activePage().inputValue() : null;
-    if (state.confirmation() != null) {
+    if (state.confirmation() != null && state.confirmation().dangerous()) {
+      Span prompt = Span.styled(" " + state.confirmation().prompt() + "  ",
+          Style.create().fg(Color.LIGHT_RED).bold());
+      Span hint = Span.styled("[y] continue  [Enter/Esc/n] cancel (default: No)",
+          Style.create().fg(Color.BRIGHT_WHITE));
+      layout.add(panel(richText(Text.from(Line.from(prompt, hint))))
+          .title(" \u26a0 Danger ")
+          .rounded().borderColor(Color.RED).length(3));
+    } else if (state.confirmation() != null) {
       Span prompt = Span.styled(" " + state.confirmation().prompt() + "  ",
           Style.create().fg(Color.LIGHT_YELLOW).bold());
       Span hint = Span.styled("[Enter/y] confirm  [Esc/n] cancel",
@@ -212,12 +220,15 @@ public final class ShellView {
       state.requestQuit();
       quit.run();
     } else if (state.confirmation() != null) {
-      boolean confirmKey = event.isKey(KeyCode.ENTER)
-          || (event.isTyping() && !event.hasNonShiftModifier()
-              && (event.codePoint() == 'y' || event.codePoint() == 'Y'));
-      boolean cancelKey = event.isKey(KeyCode.ESCAPE)
-          || (event.isTyping() && !event.hasNonShiftModifier()
-              && (event.codePoint() == 'n' || event.codePoint() == 'N'));
+      boolean dangerous = state.confirmation().dangerous();
+      boolean typedYes = event.isTyping() && !event.hasNonShiftModifier()
+          && (event.codePoint() == 'y' || event.codePoint() == 'Y');
+      boolean typedNo = event.isTyping() && !event.hasNonShiftModifier()
+          && (event.codePoint() == 'n' || event.codePoint() == 'N');
+      // Destructive prompts default to No: Enter cancels and only an explicit 'y' continues.
+      boolean confirmKey = typedYes || (!dangerous && event.isKey(KeyCode.ENTER));
+      boolean cancelKey = typedNo || event.isKey(KeyCode.ESCAPE)
+          || (dangerous && event.isKey(KeyCode.ENTER));
       if (confirmKey) {
         state.acceptConfirmation();
         if (state.quitRequested()) {
