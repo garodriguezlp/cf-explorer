@@ -10,6 +10,8 @@
 //DEPS dev.tamboui:tamboui-jline3-backend:0.7.0
 //DEPS info.picocli:picocli:4.7.6
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.19.1
+//DEPS org.slf4j:slf4j-api:2.0.17
+//DEPS org.slf4j:slf4j-jdk14:2.0.17
 
 //SOURCES ExplorerCommands.java
 //SOURCES ExplorerScreen.java
@@ -21,6 +23,7 @@
 //SOURCES catalog/CatalogProgress.java
 //SOURCES catalog/CloudFoundryCatalogClient.java
 //SOURCES catalog/CloudFoundryException.java
+//SOURCES catalog/HttpExchangeLogger.java
 //SOURCES config/EnvProcessor.java
 //SOURCES config/ExplorerConfig.java
 //SOURCES env/EnvDraft.java
@@ -55,6 +58,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -75,6 +80,8 @@ import picocli.CommandLine.Spec;
         "Defaults can also be set in ~/.cf-explorer.properties using option names without",
         "leading dashes, for example: cf-api-url=https://api.sys.example.com"})
 public class CfExplorer implements Callable<Integer> {
+  private static final Logger LOG = LoggerFactory.getLogger(CfExplorer.class);
+
   /** Kept in sync with the Maven project version by {@code DependencyAlignmentTest}. */
   static final String VERSION = "0.1.0-SNAPSHOT";
 
@@ -144,6 +151,13 @@ public class CfExplorer implements Callable<Integer> {
       fallbackValue = "true")
   boolean copyToClipboard;
 
+  @Option(names = "--debug", negatable = true,
+      defaultValue = "${CF_DEBUG:-false}", fallbackValue = "true",
+      description = "Enable debug logging including full HTTP requests, responses, and exception "
+          + "details (may write sensitive data to cf-explorer.log). "
+          + "Env: CF_DEBUG[_<ENV>]. Default: false.")
+  boolean debug;
+
   public static void main(String[] args) {
     System.exit(new CommandLine(new CfExplorer()).execute(args));
   }
@@ -161,8 +175,30 @@ public class CfExplorer implements Callable<Integer> {
       return 1;
     }
     ExplorerConfig config = buildConfig();
-    LogSetup.toFile(config.profileDir());
-    showScreen(config);
+    LogSetup.toFile(config.profileDir(), config.debug());
+    LOG.info(
+        "Session started: version={} java={} os={} env={} api={} uaa={} web={} skipSsl={} fresh={} debug={}",
+        VERSION,
+        System.getProperty("java.version"),
+        System.getProperty("os.name"),
+        config.env() != null ? config.env() : "default",
+        config.cfApiUrl(),
+        config.uaaUrl(),
+        config.cfWebUrl(),
+        config.skipSslValidation(),
+        config.fresh(),
+        config.debug());
+    if (config.debug()) {
+      LOG.warn(
+          "DEBUG MODE ACTIVE: full HTTP requests, responses, and sensitive data may be written to {}",
+          config.logFile().toAbsolutePath());
+    }
+    try {
+      showScreen(config);
+    } finally {
+      LOG.info("Session ended");
+      LogSetup.close();
+    }
     return 0;
   }
 
@@ -196,6 +232,8 @@ public class CfExplorer implements Callable<Integer> {
         keystorePasswordVar != null ? keystorePasswordVar
             : ExplorerConfig.DEFAULT_KEYSTORE_PASSWORD_VAR,
         copyToClipboard,
+        resolveFlag(parseResult, "--debug", debug,
+            "CF_DEBUG", suffix, systemProperties, environment),
         ExplorerConfig.profileDir(systemProperties.apply("user.home"), env));
   }
 

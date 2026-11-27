@@ -24,9 +24,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Minimal Cloud Foundry v3 and UAA client built on {@link HttpClient}.
@@ -37,6 +40,7 @@ import javax.net.ssl.X509TrustManager;
  * credentials or response bodies.
  */
 public final class CloudFoundryCatalogClient {
+  private static final Logger LOG = LoggerFactory.getLogger(CloudFoundryCatalogClient.class);
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final long DEFAULT_TOKEN_TTL_SECONDS = 300L;
   private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30L;
@@ -44,7 +48,7 @@ public final class CloudFoundryCatalogClient {
   private static final String DISABLE_HOSTNAME_VERIFICATION =
       "jdk.internal.httpclient.disableHostnameVerification";
 
-  private final HttpClient http;
+  private final HttpExchangeLogger http;
   private final String uaaUrl;
   private final String apiUrl;
   private final String username;
@@ -104,7 +108,7 @@ public final class CloudFoundryCatalogClient {
       System.setProperty(DISABLE_HOSTNAME_VERIFICATION, "true");
       builder.sslContext(trustAllContext());
     }
-    this.http = builder.build();
+    this.http = new HttpExchangeLogger(builder.build());
   }
 
   public ApplicationCatalog load() throws IOException, InterruptedException {
@@ -119,6 +123,7 @@ public final class CloudFoundryCatalogClient {
   public CatalogSnapshot loadSnapshot(CatalogProgress progress)
       throws IOException, InterruptedException {
     Objects.requireNonNull(progress);
+    long startNanos = System.nanoTime();
     String token = accessToken(false);
     progress.authenticated();
     ExecutorService pool = Executors.newFixedThreadPool(3, runnable -> {
@@ -133,7 +138,12 @@ public final class CloudFoundryCatalogClient {
           CatalogProgress.Resource.SPACES, token, pool, progress);
       CompletableFuture<List<JsonNode>> apps = fetchAsync("/v3/apps",
           CatalogProgress.Resource.APPS, token, pool, progress);
-      return new CatalogSnapshot(await(orgs), await(spaces), await(apps));
+      CatalogSnapshot snapshot = new CatalogSnapshot(await(orgs), await(spaces), await(apps));
+      long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+      LOG.info("Fetched catalog snapshot from Cloud Foundry: orgs={} spaces={} apps={} ({} ms)",
+          snapshot.organizations().size(), snapshot.spaces().size(), snapshot.apps().size(),
+          elapsedMs);
+      return snapshot;
     } finally {
       pool.shutdownNow();
     }
@@ -353,13 +363,14 @@ public final class CloudFoundryCatalogClient {
           .header("Content-Type", "application/x-www-form-urlencoded")
           .POST(HttpRequest.BodyPublishers.ofString(form)).build();
       JsonNode response = parseJsonResponse(
-          http.send(tokenRequest, HttpResponse.BodyHandlers.ofString()), "UAA token request");
+          http.send(tokenRequest, form, "UAA token request"), "UAA token request");
       String token = required(response, "access_token");
       long expiresIn = response.path("expires_in").isIntegralNumber()
           ? response.path("expires_in").asLong() : DEFAULT_TOKEN_TTL_SECONDS;
       long effectiveSeconds = Math.max(0L, expiresIn - TOKEN_REFRESH_BUFFER_SECONDS);
       cachedToken = token;
       tokenExpiresAtMillis = System.currentTimeMillis() + effectiveSeconds * 1000L;
+      LOG.info("Authenticated with UAA (token expires_in={}s)", expiresIn);
       return token;
     }
   }
@@ -367,12 +378,13 @@ public final class CloudFoundryCatalogClient {
   private JsonNode sendAuthorizedJson(String method, String path, String jsonBody,
       String operation) throws IOException, InterruptedException {
     String token = accessToken(false);
-    HttpResponse<String> response = http.send(authorizedRequest(method, path, jsonBody, token),
-        HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> response = http.send(
+        authorizedRequest(method, path, jsonBody, token), jsonBody, operation);
     if (response.statusCode() == 401) {
+      LOG.info("Received HTTP 401 on {} {}; refreshing UAA token and retrying", method, path);
       String refreshed = accessToken(true);
-      response = http.send(authorizedRequest(method, path, jsonBody, refreshed),
-          HttpResponse.BodyHandlers.ofString());
+      response = http.send(
+          authorizedRequest(method, path, jsonBody, refreshed), jsonBody, operation);
     }
     return parseJsonResponse(response, operation);
   }
@@ -388,12 +400,13 @@ public final class CloudFoundryCatalogClient {
     int page = 1;
     while (true) {
       String pagePath = path + "?per_page=100&page=" + page;
-      HttpResponse<String> raw = http.send(authorizedRequest("GET", pagePath, null, token),
-          HttpResponse.BodyHandlers.ofString());
+      HttpResponse<String> raw = http.send(
+          authorizedRequest("GET", pagePath, null, token), null, "Catalog fetch " + path);
       if (raw.statusCode() == 401) {
+        LOG.info("Received HTTP 401 on GET {}; refreshing UAA token and retrying", pagePath);
         token = accessToken(true);
-        raw = http.send(authorizedRequest("GET", pagePath, null, token),
-            HttpResponse.BodyHandlers.ofString());
+        raw = http.send(
+            authorizedRequest("GET", pagePath, null, token), null, "Catalog fetch " + path);
       }
       JsonNode response = parseJsonResponse(raw, "Cloud Foundry API request");
       JsonNode resources = response.get("resources");
@@ -448,7 +461,7 @@ public final class CloudFoundryCatalogClient {
     try {
       json = JSON.readTree(response.body());
     } catch (IOException ex) {
-      throw new CloudFoundryException(operation + " returned a non-JSON response.");
+      throw new CloudFoundryException(operation + " returned a non-JSON response.", ex);
     }
     if (json == null || !json.isObject()) {
       throw new CloudFoundryException(operation + " returned an unexpected response.");

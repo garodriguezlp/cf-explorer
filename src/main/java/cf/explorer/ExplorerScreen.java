@@ -69,7 +69,8 @@ final class ExplorerScreen extends ToolkitApp {
             dispatch),
         worker,
         dispatch,
-        MINIMUM_WAIT);
+        MINIMUM_WAIT,
+        config.debug() ? config.logFile().toAbsolutePath().toString() : null);
   }
 
   @Override

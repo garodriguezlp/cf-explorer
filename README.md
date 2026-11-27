@@ -158,6 +158,7 @@ Every option can be passed as a flag or an environment variable.
 | `--keystore-var` | `KEYSTORE_VAR` | `KEYSTORE` | Variable holding the base64-encoded JKS |
 | `--keystore-password-var` | `KEYSTORE_PASSWORD_VAR` | `KEYSTORE_PASSWORD` | Variable holding the base64-encoded keystore password |
 | `--[no-]copy-to-clipboard` | | `true` | Copy exported file paths to the clipboard |
+| `--[no-]debug` | `CF_DEBUG[_<ENV>]` | `false` | Log full HTTP requests, responses, and exception details to `cf-explorer.log` (displays a warning banner in the UI because sensitive data may be logged) |
 
 ### Profiles
 
@@ -201,7 +202,7 @@ Everything cf-explorer writes lives under `~/.cf-explorer/`, or
 | `cache/` | `organizations.json`, `spaces.json`, `apps.json`, used for instant startup |
 | `envs/` | Exported `<app>-<yyyyMMdd-HHmmss>.env` files |
 | `jks/` | Exported `<app>-<yyyyMMdd-HHmmss>.jks` files |
-| `cf-explorer.log` | Warnings and failures (class names only; no secrets or response bodies) |
+| `cf-explorer.log` | Single-line session events, warnings, and failure stack traces (no secrets or HTTP bodies unless `--debug` is enabled) |
 
 ## Upgrading from the previous version
 

@@ -529,6 +529,34 @@ class ShellViewTest {
         KeyEvent.ofChar('X', KeyModifiers.of(true, false, true)), state));
   }
 
+  @Test
+  void rendersGlobalDebugWarningBannerAcrossPagesAndCompactTerminals() {
+    ShellState normal = state(List.of("Atlas"));
+    assertFalse(render(normal, 100, 24).contains("DEBUG MODE"));
+
+    ShellState debugState = new ShellState(
+        () -> Toolkit.text("CatalogRoot"),
+        ShellCommands.create(),
+        Runnable::run,
+        Runnable::run,
+        Duration.ZERO,
+        "/tmp/profile/cf-explorer.log");
+
+    String full = render(debugState, 110, 24);
+    assertTrue(full.contains("[DEBUG MODE]"), full);
+    assertTrue(full.contains("sensitive data may be logged to /tmp/profile/cf-explorer.log"), full);
+    assertTrue(full.contains("CatalogRoot"), full);
+
+    debugState.openPage(() -> Toolkit.text("EnvEditorSubpage"));
+    String subpage = render(debugState, 110, 24);
+    assertTrue(subpage.contains("[DEBUG MODE]"), subpage);
+    assertTrue(subpage.contains("EnvEditorSubpage"), subpage);
+
+    String compact = render(debugState, 90, 12);
+    assertTrue(compact.contains("DEBUG MODE: sensitive data may be logged"), compact);
+    assertTrue(compact.contains("EnvEditorSubpage"), compact);
+  }
+
   private static String render(ShellState state) {
     return render(state, 100, 24);
   }

@@ -21,6 +21,7 @@ public record ExplorerConfig(
     String keystoreVar,
     String keystorePasswordVar,
     boolean copyToClipboard,
+    boolean debug,
     Path profileDir) {
 
   public static final String DEFAULT_URL = "http://localhost:9090";
@@ -29,6 +30,26 @@ public record ExplorerConfig(
   public static final String DEFAULT_EXCLUDE_KEY = "TRUSTSTORE";
   public static final String DEFAULT_KEYSTORE_VAR = "KEYSTORE";
   public static final String DEFAULT_KEYSTORE_PASSWORD_VAR = "KEYSTORE_PASSWORD";
+
+  public ExplorerConfig(
+      String env,
+      String uaaUrl,
+      String cfApiUrl,
+      String cfUsername,
+      String cfPassword,
+      String cfWebUrl,
+      boolean skipSslValidation,
+      boolean fresh,
+      List<String> excludeKeys,
+      Map<String, EnvProcessor> postProcessors,
+      String keystoreVar,
+      String keystorePasswordVar,
+      boolean copyToClipboard,
+      Path profileDir) {
+    this(env, uaaUrl, cfApiUrl, cfUsername, cfPassword, cfWebUrl, skipSslValidation, fresh,
+        excludeKeys, postProcessors, keystoreVar, keystorePasswordVar, copyToClipboard, false,
+        profileDir);
+  }
 
   public ExplorerConfig {
     Objects.requireNonNull(uaaUrl);
@@ -53,6 +74,10 @@ public record ExplorerConfig(
 
   public Path jksDir() {
     return profileDir.resolve("jks");
+  }
+
+  public Path logFile() {
+    return profileDir.resolve("cf-explorer.log");
   }
 
   public static boolean isValidEnv(String env) {

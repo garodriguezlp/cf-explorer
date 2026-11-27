@@ -114,6 +114,7 @@ class CfExplorerTest {
     ExplorerConfig config = captured.get();
     assertNotNull(config);
     assertFalse(config.fresh());
+    assertFalse(config.debug());
     assertTrue(config.copyToClipboard());
     assertEquals(List.of("TRUSTSTORE"), config.excludeKeys());
     assertEquals(Map.of("SPRING_APPLICATION_JSON", EnvProcessor.JSON), config.postProcessors());
@@ -197,5 +198,32 @@ class CfExplorerTest {
     CfExplorer flag = new CfExplorer();
     new CommandLine(flag).parseArgs("--skip-ssl-validation");
     assertTrue(flag.buildConfig(sysProps::get, k -> null).skipSslValidation());
+  }
+
+  @Test
+  void debugIsOffByDefaultAndResolvesPerProfileAndCli() {
+    Map<String, String> sysProps = Map.of("user.home", home.toString());
+
+    CfExplorer defaults = new CfExplorer();
+    new CommandLine(defaults).parseArgs();
+    assertFalse(defaults.buildConfig(sysProps::get, k -> null).debug());
+
+    CfExplorer profile = new CfExplorer();
+    new CommandLine(profile).parseArgs("--env", "lab");
+    ExplorerConfig labConfig = profile.buildConfig(
+        sysProps::get, Map.of("CF_DEBUG_LAB", "true")::get);
+    assertTrue(labConfig.debug());
+    assertEquals(
+        home.resolve(".cf-explorer").resolve("lab").resolve("cf-explorer.log"),
+        labConfig.logFile());
+
+    CfExplorer negated = new CfExplorer();
+    new CommandLine(negated).parseArgs("--env", "lab", "--no-debug");
+    assertFalse(negated.buildConfig(
+        sysProps::get, Map.of("CF_DEBUG_LAB", "true")::get).debug());
+
+    CfExplorer enabled = new CfExplorer();
+    new CommandLine(enabled).parseArgs("--debug");
+    assertTrue(enabled.buildConfig(sysProps::get, k -> null).debug());
   }
 }

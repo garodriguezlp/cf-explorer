@@ -10,4 +10,8 @@ public final class CloudFoundryException extends IOException {
   public CloudFoundryException(String safeMessage) {
     super(safeMessage);
   }
+
+  public CloudFoundryException(String safeMessage, Throwable cause) {
+    super(safeMessage, cause);
+  }
 }
