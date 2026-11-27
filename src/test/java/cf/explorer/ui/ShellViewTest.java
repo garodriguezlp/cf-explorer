@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cf.explorer.model.ShellCommand;
 import cf.explorer.model.ShellState;
 import cf.explorer.model.ShellCommands;
 import cf.explorer.model.ShellPage;
@@ -353,6 +354,41 @@ class ShellViewTest {
     assertTrue(quit.get());
     assertTrue(state.quitRequested());
     assertEquals(loading, state.page());
+  }
+
+  @Test
+  void ctrlShortcutsRunFromFilterAndCommandViewWithoutChangingInput() {
+    ExampleWorkspace examples = new ExampleWorkspace(List.of("Atlas"));
+    ShellState state = examples.state();
+    AtomicBoolean quit = new AtomicBoolean();
+    keys(state, "xb");
+    assertEquals("xb", examples.root().filter());
+    assertEquals(EventResult.HANDLED, ShellView.handleKey(
+        KeyEvent.ofChar('b', KeyModifiers.CTRL), state, () -> quit.set(true)));
+    assertEquals("xb", examples.root().filter());
+    assertEquals("Command unavailable: /back", state.status());
+
+    keys(state, "/in");
+    ShellView.handleKey(KeyEvent.ofChar('x', KeyModifiers.CTRL), state, () -> quit.set(true));
+    assertNull(state.command());
+    assertTrue(quit.get());
+    assertTrue(state.quitRequested());
+  }
+
+  @Test
+  void textProducingChordsAndUnboundCtrlKeysAreNotShortcuts() {
+    ShellState state = state(List.of("Atlas"));
+    KeyEvent altGr = KeyEvent.builder().code(KeyCode.CHAR).character('x')
+        .modifiers(KeyModifiers.of(true, true, false)).text("\u00bb").build();
+    assertEquals(ShellCommand.NO_SHORTCUT, ShellView.shortcutKey(altGr, state));
+    assertEquals(ShellCommand.NO_SHORTCUT,
+        ShellView.shortcutKey(KeyEvent.ofChar('x', KeyModifiers.ALT), state));
+    assertEquals(ShellCommand.NO_SHORTCUT,
+        ShellView.shortcutKey(KeyEvent.ofChar('y', KeyModifiers.CTRL), state));
+    assertEquals(ShellCommand.NO_SHORTCUT, ShellView.shortcutKey(KeyEvent.ofChar('x'), state));
+    assertEquals('x', ShellView.shortcutKey(KeyEvent.ofChar('x', KeyModifiers.CTRL), state));
+    assertEquals('x', ShellView.shortcutKey(
+        KeyEvent.ofChar('X', KeyModifiers.of(true, false, true)), state));
   }
 
   private static String render(ShellState state) {

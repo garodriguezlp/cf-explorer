@@ -48,6 +48,11 @@ public final class ShellState {
     if (commands.stream().map(ShellCommand::name).distinct().count() != commands.size()) {
       throw new IllegalArgumentException("Duplicate command name");
     }
+    List<Character> shortcuts = commands.stream().filter(ShellCommand::hasShortcut)
+        .map(ShellCommand::shortcut).toList();
+    if (shortcuts.stream().distinct().count() != shortcuts.size()) {
+      throw new IllegalArgumentException("Duplicate command shortcut");
+    }
   }
 
   /** The opened page, or {@code null} when the root page is active. */
@@ -164,18 +169,47 @@ public final class ShellState {
         : suggestions.get(Math.min(suggestionIndex, suggestions.size() - 1));
     if (chosen == null) {
       status = "Unknown command: /" + command;
-    } else if (!chosen.available().test(this)) {
-      status = "Command unavailable: /" + chosen.name();
     } else {
-      status = "";
-      command = null;
-      cursor = 0;
-      try {
-        chosen.execute().accept(this);
-      } catch (RuntimeException ex) {
-        logFailure("Command /" + chosen.name(), ex);
-        status = "Command failed: /" + chosen.name();
-      }
+      run(chosen);
+    }
+  }
+
+  /** Commands with a global {@code Ctrl+<letter>} shortcut, in registration order. */
+  public List<ShellCommand> shortcutCommands() {
+    return commands.stream().filter(ShellCommand::hasShortcut).toList();
+  }
+
+  /**
+   * Runs the command bound to {@code Ctrl+<key>} from any page, closing the command view first.
+   * Returns {@code false} when no command uses that shortcut.
+   */
+  public boolean runShortcut(char key) {
+    char normalized = Character.toLowerCase(key);
+    ShellCommand chosen = commands.stream().filter(ShellCommand::hasShortcut)
+        .filter(candidate -> candidate.shortcut() == normalized).findFirst().orElse(null);
+    if (chosen == null) {
+      return false;
+    }
+    command = null;
+    cursor = 0;
+    suggestionIndex = 0;
+    run(chosen);
+    return true;
+  }
+
+  private void run(ShellCommand chosen) {
+    if (!chosen.available().test(this)) {
+      status = "Command unavailable: /" + chosen.name();
+      return;
+    }
+    status = "";
+    command = null;
+    cursor = 0;
+    try {
+      chosen.execute().accept(this);
+    } catch (RuntimeException ex) {
+      logFailure("Command /" + chosen.name(), ex);
+      status = "Command failed: /" + chosen.name();
     }
   }
 

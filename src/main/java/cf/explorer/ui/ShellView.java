@@ -103,18 +103,43 @@ public final class ShellView {
   }
 
   /**
-   * Routes a key event. Outside command mode the active page handles keys first, except {@code /}
-   * (which starts command entry) and Esc on opened pages (which navigates back). The root page
-   * receives Esc so it can clear its filter.
+   * Returns the registered shortcut letter for a {@code Ctrl+<letter>} chord, or
+   * {@link ShellCommand#NO_SHORTCUT}. Chords that produce text (AltGr on some layouts reports
+   * Ctrl+Alt) and Alt chords are typing, not shortcuts, so they keep reaching the inputs.
+   * {@link KeyEvent#isCharIgnoreCase} also honors the base-layout key that the Kitty keyboard
+   * protocol reports for non-Latin layouts.
+   */
+  static char shortcutKey(KeyEvent event, ShellState state) {
+    if (!event.hasCtrl() || event.hasAlt() || event.isTyping() || event.code() != KeyCode.CHAR) {
+      return ShellCommand.NO_SHORTCUT;
+    }
+    for (ShellCommand command : state.shortcutCommands()) {
+      if (event.isCharIgnoreCase(command.shortcut())) {
+        return command.shortcut();
+      }
+    }
+    return ShellCommand.NO_SHORTCUT;
+  }
+
+  /**
+   * Routes a key event. Registered {@code Ctrl+<letter>} shortcuts run first, from any page and
+   * from the command view. Outside command mode the active page handles keys next, except
+   * {@code /} (which starts command entry) and Esc on opened pages (which navigates back). The
+   * root page receives Esc so it can clear its filter.
    */
   static EventResult handleKey(KeyEvent event, ShellState state, Runnable quit) {
     if (!event.isPressOrRepeat()) {
       return EventResult.UNHANDLED;
     }
     boolean slash = event.isTyping() && !event.hasNonShiftModifier() && event.codePoint() == '/';
+    char shortcut = shortcutKey(event, state);
     if (event.isCtrlC()) {
       state.requestQuit();
       quit.run();
+    } else if (shortcut != ShellCommand.NO_SHORTCUT && state.runShortcut(shortcut)) {
+      if (state.quitRequested()) {
+        quit.run();
+      }
     } else if (state.command() == null && !slash
         && (state.page() == null || !event.isKey(KeyCode.ESCAPE))
         && state.activePage().handleKey(event) == EventResult.HANDLED) {

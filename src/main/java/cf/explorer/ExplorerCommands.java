@@ -56,6 +56,7 @@ public final class ExplorerCommands {
     List<ShellCommand> commands = new ArrayList<>();
     commands.add(new ShellCommand(
         "export",
+        'e',
         "Export selected app environment to a .env file",
         state -> state.selected(ApplicationCatalog.App.class) != null,
         state -> {
@@ -78,6 +79,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "open",
+        'o',
         "Open selected app in Apps Manager",
         state -> AppsManagerUrl.canBuild(state.selected(ApplicationCatalog.App.class)),
         state -> {
@@ -118,6 +120,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "keystore",
+        'k',
         "Export and inspect selected app JKS keystore",
         state -> state.selected(ApplicationCatalog.App.class) != null,
         state -> {
@@ -143,6 +146,7 @@ public final class ExplorerCommands {
 
     commands.add(new ShellCommand(
         "refresh",
+        'r',
         "Reload catalog from Cloud Foundry",
         state -> state.page() == null,
         state -> catalogPage.startRefresh(
