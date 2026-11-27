@@ -77,7 +77,7 @@ command view lists each command's shortcut.
 
 | Command | Shortcut | Available when | What it does |
 |---|---|---|---|
-| `/env` | `Ctrl+L` | An app is selected | Opens the interactive environment editor to fuzzy-search, add, update, or delete variables |
+| `/env` | `Ctrl+L` | An app is selected | Opens the interactive environment editor to fuzzy-search keys and values, add, update, or delete variables |
 | `/export` | `Ctrl+E` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
 | `/keystore` | `Ctrl+K` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
 | `/open` | `Ctrl+O` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |

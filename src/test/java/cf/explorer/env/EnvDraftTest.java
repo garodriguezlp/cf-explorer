@@ -142,7 +142,7 @@ class EnvDraftTest {
     // Multi-token query requires all tokens to match
     assertEquals(List.of("SPRING_DATASOURCE_URL"),
         draft.filter("spda postgres").stream().map(Entry::key).toList());
-    assertTrue(draft.filter("spda redis").isEmpty());
+    assertTrue(draft.filter("spda xyz").isEmpty());
 
     boolean[] matched = EnvDraft.matchedKeyChars("DB_URL", "du");
     assertArrayEquals(new boolean[] {true, false, false, true, false, false}, matched);
@@ -150,6 +150,37 @@ class EnvDraftTest {
     EnvDraft dottedDraft = new EnvDraft(Map.of("foo.dot.variable", "v1", "OTHER_VAR", "v2"));
     assertEquals(List.of("foo.dot.variable"),
         dottedDraft.filter("fdv").stream().map(Entry::key).toList());
+  }
+
+  @Test
+  void fuzzySearchMatchesValuesAndStagedChanges() {
+    EnvDraft draft = new EnvDraft(Map.of(
+        "Z_KEY", "alpha-beta-charlie",
+        "ABC_KEY", "unrelated",
+        "A_KEY", "xxabcxx",
+        "OLD_KEY", "previous-value",
+        "DELETED_KEY", "retired-value"));
+    draft.stageSet("OLD_KEY", "replacement-value");
+    draft.stageSet("NEW_KEY", "another-value");
+    draft.stageDelete("DELETED_KEY");
+
+    assertEquals(List.of("ABC_KEY", "A_KEY", "Z_KEY"),
+        draft.filter("abc").stream().map(Entry::key).toList());
+    assertEquals(List.of("Z_KEY"),
+        draft.filter("zkey AbC").stream().map(Entry::key).toList());
+    assertEquals(List.of("OLD_KEY"),
+        draft.filter("rplcmnt").stream().map(Entry::key).toList());
+    assertEquals(List.of("OLD_KEY"),
+        draft.filter("prvs").stream().map(Entry::key).toList());
+    assertEquals(List.of("NEW_KEY"),
+        draft.filter("anthr").stream().map(Entry::key).toList());
+    assertEquals(List.of("DELETED_KEY"),
+        draft.filter("rtrd").stream().map(Entry::key).toList());
+    assertTrue(draft.filter("zkey zzz").isEmpty());
+
+    EnvDraft boundaryDraft = new EnvDraft(Map.of("KEY", "xa-bc-a"));
+    assertEquals(List.of("KEY"),
+        boundaryDraft.filter("abc").stream().map(Entry::key).toList());
   }
 
   @Test

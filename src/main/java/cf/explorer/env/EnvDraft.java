@@ -133,7 +133,7 @@ public final class EnvDraft {
 
   /**
    * Filters entries using case-insensitive whitespace-separated tokens. Exact and substring key
-   * matches rank ahead of fuzzy character-subsequence key matches and value substring matches.
+   * matches rank ahead of fuzzy character-subsequence key matches and value matches.
    */
   public List<Entry> filter(String query) {
     List<Entry> all = entries();
@@ -180,12 +180,26 @@ public final class EnvDraft {
       return 40 + Math.min(fuzzyPenalty, 30);
     }
     String effective = entry.effectiveValue();
-    if (effective != null && effective.toLowerCase(Locale.ROOT).contains(lowerToken)) {
+    String lowerEffective = effective == null ? null : effective.toLowerCase(Locale.ROOT);
+    if (lowerEffective != null && lowerEffective.contains(lowerToken)) {
       return 80;
     }
     String base = entry.baselineValue();
-    if (base != null && base.toLowerCase(Locale.ROOT).contains(lowerToken)) {
+    String lowerBase = base == null ? null : base.toLowerCase(Locale.ROOT);
+    if (lowerBase != null && lowerBase.contains(lowerToken)) {
       return 90;
+    }
+    if (lowerEffective != null) {
+      fuzzyPenalty = fuzzySubsequencePenalty(lowerEffective, lowerToken);
+      if (fuzzyPenalty >= 0) {
+        return 100 + Math.min(fuzzyPenalty, 30);
+      }
+    }
+    if (lowerBase != null) {
+      fuzzyPenalty = fuzzySubsequencePenalty(lowerBase, lowerToken);
+      if (fuzzyPenalty >= 0) {
+        return 140 + Math.min(fuzzyPenalty, 30);
+      }
     }
     return -1;
   }
@@ -210,6 +224,11 @@ public final class EnvDraft {
   }
 
   private static int[] fuzzyPositions(String lowerHaystack, String lowerNeedle) {
+    int[] positions = fuzzyPositions(lowerHaystack, lowerNeedle, true);
+    return positions != null ? positions : fuzzyPositions(lowerHaystack, lowerNeedle, false);
+  }
+
+  private static int[] fuzzyPositions(String lowerHaystack, String lowerNeedle, boolean preferBoundary) {
     if (lowerNeedle.isEmpty()) {
       return new int[0];
     }
@@ -219,7 +238,7 @@ public final class EnvDraft {
       char target = lowerNeedle.charAt(n);
       int found = -1;
       // Prefer boundary match (start of key or immediately after '_', '.', or '-') when available
-      for (int scan = h; scan < lowerHaystack.length(); scan++) {
+      for (int scan = h; preferBoundary && scan < lowerHaystack.length(); scan++) {
         if (lowerHaystack.charAt(scan) == target
             && (scan == 0 || isKeySeparator(lowerHaystack.charAt(scan - 1)))) {
           found = scan;
