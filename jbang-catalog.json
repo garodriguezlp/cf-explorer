@@ -1,10 +1,12 @@
 {
     "aliases": {
         "cf-explorer": {
-            "script-ref": "CfExplorer.java"
+            "script-ref": "src/main/java/cf/explorer/CfExplorer.java",
+            "description": "Interactive terminal browser for Cloud Foundry apps, environments, and keystores"
         },
         "mock-server": {
-            "script-ref": "wiremock/MockServer.java"
+            "script-ref": "wiremock/MockServer.java",
+            "description": "WireMock server that simulates UAA and the Cloud Foundry v3 API on port 9090"
         }
     }
 }
