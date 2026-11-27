@@ -317,8 +317,9 @@ class ShellViewTest {
     EnvDraft draft = new EnvDraft(Map.of("KEY", "hit-012345678901234567890-tail", "EMPTY", ""));
     var app = new ApplicationCatalog.App("one", "app", "STARTED", "s", "space", "o", "org",
         "2024-01-01", "2024-01-02");
-    ShellState state = new ShellState(new EnvEditorPage(app, draft), ShellCommands.create(),
-        Runnable::run, Runnable::run);
+    ShellState state = state(List.of());
+    EnvEditorPage editor = new EnvEditorPage(app, draft);
+    state.openPage(editor);
     keys(state, "hit tail");
     Buffer buffer = renderBuffer(state, 40, 12);
     assertRowColors(buffer, "hit-", Color.LIGHT_YELLOW, Color.LIGHT_YELLOW,
@@ -326,6 +327,7 @@ class ShellViewTest {
     assertRowColors(buffer, "\u2026", Color.WHITE);
 
     keys(state, KeyCode.ESCAPE);
+    assertEquals("", editor.inputValue());
     keys(state, "empty");
     assertRowColors(renderBuffer(state, 100, 24), "<empty>", Color.WHITE, Color.WHITE,
         Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE);
