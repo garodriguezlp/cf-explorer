@@ -55,7 +55,7 @@ public final class ExplorerCommands {
 
     List<ShellCommand> commands = new ArrayList<>();
     commands.add(new ShellCommand(
-        "export-env",
+        "export",
         "Export selected app environment to a .env file",
         state -> state.selected(ApplicationCatalog.App.class) != null,
         state -> {

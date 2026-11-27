@@ -73,7 +73,7 @@ class ExplorerCommandsTest {
     // Load catalog
     catalogPage.loaded(new ApplicationCatalog(1, 1, List.of(APP)));
     type(state, "/");
-    assertEquals(List.of("export-env", "open", "keystore", "refresh", "quit"),
+    assertEquals(List.of("export", "open", "keystore", "refresh", "quit"),
         state.suggestions().stream().map(ShellCommand::name).toList());
     state.cancel();
 
@@ -87,8 +87,8 @@ class ExplorerCommandsTest {
         openedUrl.get());
     assertEquals("Opened billing-api in Apps Manager.", state.status());
 
-    // /export-env runs off render thread and renders safe summary without leaking values
-    type(state, "/export-env");
+    // /export runs off render thread and renders safe summary without leaking values
+    type(state, "/export");
     state.confirm();
     assertTrue(render(state).contains("Exporting environment for billing-api..."));
     worker.remove().run();

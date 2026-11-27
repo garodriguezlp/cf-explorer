@@ -75,7 +75,7 @@ command against the selected app.
 
 | Command | Available when | What it does |
 |---|---|---|
-| `/export-env` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
+| `/export` | An app is selected | Writes the app's environment to `envs/<app>-<timestamp>.env` and copies the path to the clipboard |
 | `/keystore` | An app is selected | Decodes the base64 JKS and password variables, writes `jks/<app>-<timestamp>.jks`, and lists each certificate's subject, issuer, and validity |
 | `/open` | An app is selected | Opens the app in Apps Manager; prints the URL if no browser is available |
 | `/refresh` | On the catalog | Reloads from Cloud Foundry, keeps the filter and selection, and updates the cache only on success |
@@ -169,7 +169,7 @@ The catalog, cache format, profiles, and `.env` format are unchanged. Behavior t
 changed:
 
 - **Slash commands replace key bindings.** `Enter`, `Ctrl+O`, `Ctrl+K`, `Ctrl+F`, and
-  `q` became `/export-env`, `/open`, `/keystore`, `/refresh`, and `/quit`, so every
+  `q` became `/export`, `/open`, `/keystore`, `/refresh`, and `/quit`, so every
   printable key, including `q`, now edits the filter.
 - **TLS is verified by default.** The previous version trusted every certificate. Pass
   `--skip-ssl-validation` (or set `CF_SKIP_SSL_VALIDATION_<ENV>=true`) for

@@ -132,6 +132,15 @@ class ShellStateTest {
   }
 
   @Test
+  void commandNamesAreSingleWords() {
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("export-env", "Two words", s -> true, s -> {}));
+    assertThrows(IllegalArgumentException.class,
+        () -> new ShellCommand("export env", "Two words", s -> true, s -> {}));
+    assertEquals("export", new ShellCommand("export", "One word", s -> true, s -> {}).name());
+  }
+
+  @Test
   void asyncCompletionRunsOnlyWhenDispatched() {
     Queue<Runnable> worker = new ArrayDeque<>();
     Queue<Runnable> render = new ArrayDeque<>();
